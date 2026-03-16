@@ -85,6 +85,7 @@ export function PartForm({ part }: { part?: Part }) {
       if (part) {
         await updatePart(part.id, {
           barcode: barcode || undefined,
+          item_code: formData.item_code,
           item_name: formData.item_name,
           package: formData.package || undefined,
           location: formData.location || undefined,
@@ -124,12 +125,18 @@ export function PartForm({ part }: { part?: Part }) {
           </div>
         </div>
         <div className="space-y-2">
-          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <Label htmlFor="item_code" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Item Code
           </Label>
-          <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-            {formData.item_code || "..."}
-          </div>
+          <Input
+            id="item_code"
+            type="number"
+            value={formData.item_code || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, item_code: parseInt(e.target.value) || 0 })
+            }
+            className="font-mono bg-secondary border-border/50"
+          />
         </div>
       </div>
 

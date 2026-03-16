@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Package, Grid3X3, Plus, Tags } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -48,13 +49,14 @@ export default function RootLayout({
         <div className="min-h-dvh flex flex-col">
           <header className="border-b border-border/50 bg-background/80 backdrop-blur-xl sticky top-0 z-50">
             <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-              <Link href="/" className="font-bold text-lg tracking-tight text-primary">
-                Parts
+              <Link href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight text-primary">
+                <Package size={20} />
+                <span>Inventory</span>
               </Link>
-              <nav className="flex gap-1">
-                <NavLink href="/storage">Storage</NavLink>
-                <NavLink href="/parts/new">+ Add</NavLink>
-                <NavLink href="/labels">Labels</NavLink>
+              <nav className="flex gap-0.5">
+                <NavLink href="/storage" icon={<Grid3X3 size={16} />}>Boxes</NavLink>
+                <NavLink href="/parts/new" icon={<Plus size={16} />}>Add</NavLink>
+                <NavLink href="/labels" icon={<Tags size={16} />}>Labels</NavLink>
               </nav>
             </div>
           </header>
@@ -68,13 +70,14 @@ export default function RootLayout({
   );
 }
 
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+function NavLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <Link
       href={href}
-      className="px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg transition-colors"
+      className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg transition-colors"
     >
-      {children}
+      {icon}
+      <span className="hidden sm:inline">{children}</span>
     </Link>
   );
 }
