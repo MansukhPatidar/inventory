@@ -181,28 +181,16 @@ export async function importParts(
   return results;
 }
 
-export async function getOccupiedBins(
+export async function getPartsInBox(
   location: string
-): Promise<{ bin_number: number; parts: { id: number; item_name: string }[] }[]> {
+): Promise<{ id: number; item_name: string; item_code: number; bin_number: number | null }[]> {
   const { data, error } = await supabase
     .from("parts")
-    .select("id, item_name, bin_number")
+    .select("id, item_name, item_code, bin_number")
     .eq("location", location)
-    .not("bin_number", "is", null)
-    .order("bin_number");
+    .order("item_code");
   if (error) throw error;
-
-  const binMap = new Map<number, { id: number; item_name: string }[]>();
-  for (const row of data) {
-    const bn = row.bin_number as number;
-    if (!binMap.has(bn)) binMap.set(bn, []);
-    binMap.get(bn)!.push({ id: row.id, item_name: row.item_name });
-  }
-
-  return Array.from(binMap.entries()).map(([bin_number, parts]) => ({
-    bin_number,
-    parts,
-  }));
+  return data as { id: number; item_name: string; item_code: number; bin_number: number | null }[];
 }
 
 // --- Boxes ---
@@ -241,20 +229,28 @@ export async function getBoxesWithParts(): Promise<{
   return { boxes: boxesRes.data as Box[], partsByBox };
 }
 
-export async function createBox(id: string, bin_count: number): Promise<Box> {
+export async function createBox(
+  id: string,
+  bin_count: number,
+  rows: number,
+  cols: number
+): Promise<Box> {
   const { data, error } = await supabase
     .from("boxes")
-    .insert({ id, bin_count })
+    .insert({ id, bin_count, rows, cols })
     .select()
     .single();
   if (error) throw error;
   return data as Box;
 }
 
-export async function updateBox(id: string, bin_count: number): Promise<Box> {
+export async function updateBox(
+  id: string,
+  updates: { bin_count?: number; rows?: number; cols?: number }
+): Promise<Box> {
   const { data, error } = await supabase
     .from("boxes")
-    .update({ bin_count })
+    .update(updates)
     .eq("id", id)
     .select()
     .single();

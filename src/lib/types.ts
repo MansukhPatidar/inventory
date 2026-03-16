@@ -16,6 +16,8 @@ export interface Part {
 export interface Box {
   id: string;
   bin_count: number;
+  rows: number;
+  cols: number;
   created_at: string;
 }
 

@@ -30,6 +30,8 @@ export default function StoragePage() {
   const [editingBox, setEditingBox] = useState<Box | null>(null);
   const [formId, setFormId] = useState("");
   const [formBins, setFormBins] = useState(20);
+  const [formRows, setFormRows] = useState(3);
+  const [formCols, setFormCols] = useState(7);
   const [formSaving, setFormSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Box | null>(null);
@@ -54,7 +56,9 @@ export default function StoragePage() {
   function openCreate() {
     setEditingBox(null);
     setFormId("");
-    setFormBins(20);
+    setFormBins(21);
+    setFormRows(3);
+    setFormCols(7);
     setFormOpen(true);
   }
 
@@ -62,18 +66,27 @@ export default function StoragePage() {
     setEditingBox(box);
     setFormId(box.id);
     setFormBins(box.bin_count);
+    setFormRows(box.rows);
+    setFormCols(box.cols);
     setFormOpen(true);
   }
+
+  // Auto-calculate bin_count from rows * cols
+  useEffect(() => {
+    if (formOpen) {
+      setFormBins(formRows * formCols);
+    }
+  }, [formRows, formCols, formOpen]);
 
   async function handleSave() {
     if (!formId.trim()) return;
     setFormSaving(true);
     try {
       if (editingBox) {
-        await updateBox(editingBox.id, formBins);
+        await updateBox(editingBox.id, { bin_count: formBins, rows: formRows, cols: formCols });
         toast.success(`Updated ${editingBox.id}`);
       } else {
-        await createBox(formId.trim().toUpperCase(), formBins);
+        await createBox(formId.trim().toUpperCase(), formBins, formRows, formCols);
         toast.success(`Created ${formId.trim().toUpperCase()}`);
       }
       setFormOpen(false);
@@ -167,19 +180,40 @@ export default function StoragePage() {
                 autoFocus={!editingBox}
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Bin Count
-              </Label>
-              <Input
-                type="number"
-                value={formBins}
-                onChange={(e) =>
-                  setFormBins(parseInt(e.target.value) || 0)
-                }
-                className="font-mono bg-secondary border-border/50"
-                autoFocus={!!editingBox}
-              />
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Rows
+                </Label>
+                <Input
+                  type="number"
+                  value={formRows}
+                  onChange={(e) => setFormRows(parseInt(e.target.value) || 1)}
+                  min={1}
+                  className="font-mono bg-secondary border-border/50"
+                  autoFocus={!!editingBox}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Cols
+                </Label>
+                <Input
+                  type="number"
+                  value={formCols}
+                  onChange={(e) => setFormCols(parseInt(e.target.value) || 1)}
+                  min={1}
+                  className="font-mono bg-secondary border-border/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Bins
+                </Label>
+                <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
+                  {formBins}
+                </div>
+              </div>
             </div>
             <div className="flex gap-3 justify-end pt-2">
               {editingBox && (

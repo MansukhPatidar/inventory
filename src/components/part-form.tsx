@@ -11,7 +11,7 @@ import {
   updatePart,
   getNextItemCode,
   getPackages,
-  getOccupiedBins,
+  getPartsInBox,
 } from "@/lib/actions";
 import type { Part } from "@/lib/types";
 
@@ -27,8 +27,8 @@ export function PartForm({ part }: { part?: Part }) {
 
   const [sharedBin, setSharedBin] = useState(part?.bin_number != null);
   const [binNumber, setBinNumber] = useState<number | null>(part?.bin_number ?? null);
-  const [occupiedBins, setOccupiedBins] = useState<
-    { bin_number: number; parts: { id: number; item_name: string }[] }[]
+  const [boxParts, setBoxParts] = useState<
+    { id: number; item_name: string; item_code: number; bin_number: number | null }[]
   >([]);
 
   const [formData, setFormData] = useState({
@@ -54,12 +54,12 @@ export function PartForm({ part }: { part?: Part }) {
     }
   }, [isNew]);
 
-  // Fetch occupied bins when location changes
+  // Fetch parts in box when location changes
   useEffect(() => {
     if (formData.location) {
-      getOccupiedBins(formData.location).then(setOccupiedBins).catch(() => {});
+      getPartsInBox(formData.location).then(setBoxParts).catch(() => {});
     } else {
-      setOccupiedBins([]);
+      setBoxParts([]);
     }
   }, [formData.location]);
 
@@ -243,46 +243,46 @@ export function PartForm({ part }: { part?: Part }) {
           {sharedBin && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Bin Number
+                Share with
               </Label>
-              {occupiedBins.length > 0 ? (
-                <div className="space-y-2">
-                  <select
-                    value={binNumber ?? ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setBinNumber(val ? parseInt(val) : null);
-                    }}
-                    className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 text-sm font-mono focus:outline-none focus:border-primary"
-                  >
-                    <option value="">Select existing bin...</option>
-                    {occupiedBins.map((bin) => (
-                      <option key={bin.bin_number} value={bin.bin_number}>
-                        Bin {bin.bin_number} — {bin.parts.map((p) => p.item_name).join(", ")}
+              {boxParts.filter((p) => p.id !== part?.id).length > 0 ? (
+                <select
+                  value={binNumber ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val) {
+                      // Find the selected part and use its position as bin number
+                      const selectedPart = boxParts.find((p) => p.id === parseInt(val));
+                      if (selectedPart) {
+                        // Use existing bin_number if the target has one, otherwise use its index + 1
+                        const targetBin = selectedPart.bin_number ??
+                          boxParts.filter((p) => p.id !== part?.id).indexOf(selectedPart) + 1;
+                        setBinNumber(targetBin);
+                      }
+                    } else {
+                      setBinNumber(null);
+                    }
+                  }}
+                  className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 text-sm focus:outline-none focus:border-primary"
+                >
+                  <option value="">Select a part to share bin with...</option>
+                  {boxParts
+                    .filter((p) => p.id !== part?.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.item_name} (#{p.item_code})
                       </option>
                     ))}
-                  </select>
-                  <div className="text-xs text-muted-foreground">or enter a new bin number:</div>
-                  <Input
-                    type="number"
-                    value={binNumber ?? ""}
-                    onChange={(e) =>
-                      setBinNumber(e.target.value ? parseInt(e.target.value) : null)
-                    }
-                    placeholder="Bin number..."
-                    className="font-mono bg-secondary border-border/50"
-                  />
-                </div>
+                </select>
               ) : (
-                <Input
-                  type="number"
-                  value={binNumber ?? ""}
-                  onChange={(e) =>
-                    setBinNumber(e.target.value ? parseInt(e.target.value) : null)
-                  }
-                  placeholder="Bin number..."
-                  className="font-mono bg-secondary border-border/50"
-                />
+                <p className="text-xs text-muted-foreground/60">
+                  No other parts in this box yet
+                </p>
+              )}
+              {binNumber != null && (
+                <p className="text-xs text-muted-foreground">
+                  Bin number: <span className="font-mono">{binNumber}</span>
+                </p>
               )}
             </div>
           )}

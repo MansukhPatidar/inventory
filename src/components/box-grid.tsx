@@ -82,7 +82,10 @@ export function BoxGrid({
       </div>
 
       {/* Bin grid */}
-      <div className="p-3 grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
+      <div
+        className="p-3 grid gap-1.5"
+        style={{ gridTemplateColumns: `repeat(${box.cols}, minmax(0, 1fr))` }}
+      >
         {bins.map((binParts, i) => {
           const binNum = i + 1;
 
