@@ -52,9 +52,7 @@ export default function RootLayout({
                 Parts
               </Link>
               <nav className="flex gap-1">
-                <NavLink href="/scan">Scan</NavLink>
                 <NavLink href="/parts/new">+ Add</NavLink>
-                <NavLink href="/import">Import</NavLink>
                 <NavLink href="/labels">Labels</NavLink>
               </nav>
             </div>
