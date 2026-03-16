@@ -97,16 +97,21 @@ export function BoxGrid({
               return (
                 <div
                   key={binNum}
-                  className="relative flex flex-col items-center justify-center rounded-lg border border-amber-500/40 bg-amber-500/10 p-1.5 min-h-[52px]"
+                  className="relative flex flex-col items-center justify-center rounded-lg border border-amber-500/40 bg-amber-500/10 p-1 min-h-[52px] gap-0.5"
                   title={binParts.map((p) => p.item_name).join(", ")}
                 >
                   <span className="text-[10px] font-mono text-amber-500/60 leading-none">
                     {binNum}
                   </span>
-                  <span className="text-[9px] text-center leading-tight mt-0.5 text-foreground/70 line-clamp-2">
-                    {binParts.length} parts
-                  </span>
-                  <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  {binParts.map((p) => (
+                    <Link
+                      key={p.id}
+                      href={`/parts?id=${p.id}`}
+                      className="text-[9px] text-center leading-tight text-foreground/70 hover:text-amber-400 transition-colors truncate w-full"
+                    >
+                      {p.item_name.length > 10 ? p.item_name.slice(0, 9) + "…" : p.item_name}
+                    </Link>
+                  ))}
                 </div>
               );
             }

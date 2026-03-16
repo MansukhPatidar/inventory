@@ -12,6 +12,7 @@ import {
   getNextItemCode,
   getPackages,
   getPartsInBox,
+  sharebin,
 } from "@/lib/actions";
 import type { Part } from "@/lib/types";
 
@@ -26,7 +27,7 @@ export function PartForm({ part }: { part?: Part }) {
   const pkgRef = useRef<HTMLDivElement>(null);
 
   const [sharedBin, setSharedBin] = useState(part?.bin_number != null);
-  const [binNumber, setBinNumber] = useState<number | null>(part?.bin_number ?? null);
+  const [shareTargetId, setShareTargetId] = useState<number | null>(null);
   const [boxParts, setBoxParts] = useState<
     { id: number; item_name: string; item_code: number; bin_number: number | null }[]
   >([]);
@@ -95,8 +96,6 @@ export function PartForm({ part }: { part?: Part }) {
         localStorage.setItem(LAST_LOCATION_KEY, formData.location);
       }
 
-      const binValue = sharedBin ? binNumber : null;
-
       if (part) {
         await updatePart(part.id, {
           barcode: barcode || undefined,
@@ -106,8 +105,11 @@ export function PartForm({ part }: { part?: Part }) {
           location: formData.location || undefined,
           details: formData.details || undefined,
           qty: formData.qty,
-          bin_number: binValue,
+          bin_number: sharedBin ? part.bin_number : null,
         });
+        if (sharedBin && shareTargetId) {
+          await sharebin(part.id, shareTargetId);
+        }
         router.push(`/parts?id=${part.id}`);
       } else {
         const created = await createPart({
@@ -118,8 +120,11 @@ export function PartForm({ part }: { part?: Part }) {
           location: formData.location || null,
           details: formData.details || null,
           qty: formData.qty,
-          bin_number: binValue,
+          bin_number: null,
         });
+        if (sharedBin && shareTargetId) {
+          await sharebin(created.id, shareTargetId);
+        }
         router.push(`/parts?id=${created.id}`);
       }
     } catch (e) {
@@ -233,7 +238,7 @@ export function PartForm({ part }: { part?: Part }) {
               checked={sharedBin}
               onChange={(e) => {
                 setSharedBin(e.target.checked);
-                if (!e.target.checked) setBinNumber(null);
+                if (!e.target.checked) setShareTargetId(null);
               }}
               className="rounded border-border accent-primary"
             />
@@ -243,25 +248,13 @@ export function PartForm({ part }: { part?: Part }) {
           {sharedBin && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Share with
+                Share bin with
               </Label>
               {boxParts.filter((p) => p.id !== part?.id).length > 0 ? (
                 <select
-                  value={binNumber ?? ""}
+                  value={shareTargetId ?? ""}
                   onChange={(e) => {
-                    const val = e.target.value;
-                    if (val) {
-                      // Find the selected part and use its position as bin number
-                      const selectedPart = boxParts.find((p) => p.id === parseInt(val));
-                      if (selectedPart) {
-                        // Use existing bin_number if the target has one, otherwise use its index + 1
-                        const targetBin = selectedPart.bin_number ??
-                          boxParts.filter((p) => p.id !== part?.id).indexOf(selectedPart) + 1;
-                        setBinNumber(targetBin);
-                      }
-                    } else {
-                      setBinNumber(null);
-                    }
+                    setShareTargetId(e.target.value ? parseInt(e.target.value) : null);
                   }}
                   className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 text-sm focus:outline-none focus:border-primary"
                 >
@@ -277,11 +270,6 @@ export function PartForm({ part }: { part?: Part }) {
               ) : (
                 <p className="text-xs text-muted-foreground/60">
                   No other parts in this box yet
-                </p>
-              )}
-              {binNumber != null && (
-                <p className="text-xs text-muted-foreground">
-                  Bin number: <span className="font-mono">{binNumber}</span>
                 </p>
               )}
             </div>

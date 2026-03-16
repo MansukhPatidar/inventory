@@ -193,6 +193,61 @@ export async function getPartsInBox(
   return data as { id: number; item_name: string; item_code: number; bin_number: number | null }[];
 }
 
+export async function sharebin(partId: number, targetPartId: number) {
+  // Get the target part's current bin_number
+  const { data: target, error: tErr } = await supabase
+    .from("parts")
+    .select("bin_number, location")
+    .eq("id", targetPartId)
+    .single();
+  if (tErr) throw tErr;
+
+  // Get all parts in the same box to compute position if needed
+  let binNum = target.bin_number;
+  if (binNum == null) {
+    // Target has no bin_number — assign one based on its position
+    const { data: boxParts, error: bErr } = await supabase
+      .from("parts")
+      .select("id, bin_number")
+      .eq("location", target.location)
+      .order("item_code");
+    if (bErr) throw bErr;
+
+    // Compute position: shared bins occupy their slot, auto parts fill remaining
+    const shared = new Set<number>();
+    for (const p of boxParts) {
+      if (p.bin_number != null) shared.add(p.bin_number);
+    }
+    let pos = 1;
+    for (const p of boxParts) {
+      if (p.bin_number != null) continue;
+      while (shared.has(pos)) pos++;
+      if (p.id === targetPartId) {
+        binNum = pos;
+        break;
+      }
+      pos++;
+    }
+  }
+
+  if (binNum == null) throw new Error("Could not determine bin number");
+
+  // Set bin_number on both parts
+  const { error: e1 } = await supabase
+    .from("parts")
+    .update({ bin_number: binNum })
+    .eq("id", targetPartId);
+  if (e1) throw e1;
+
+  const { error: e2 } = await supabase
+    .from("parts")
+    .update({ bin_number: binNum })
+    .eq("id", partId);
+  if (e2) throw e2;
+
+  return binNum;
+}
+
 // --- Boxes ---
 
 export async function getBoxes(): Promise<Box[]> {
