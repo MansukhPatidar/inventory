@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import {
   createPart,
   updatePart,
@@ -110,6 +111,7 @@ export function PartForm({ part }: { part?: Part }) {
         if (sharedBin && shareTargetId) {
           await sharebin(part.id, shareTargetId);
         }
+        toast.success(`Updated "${formData.item_name}"`);
         router.push(`/parts?id=${part.id}`);
       } else {
         const created = await createPart({
@@ -125,10 +127,11 @@ export function PartForm({ part }: { part?: Part }) {
         if (sharedBin && shareTargetId) {
           await sharebin(created.id, shareTargetId);
         }
+        toast.success(`Created "${formData.item_name}"`);
         router.push(`/parts?id=${created.id}`);
       }
     } catch (e) {
-      alert("Error: " + (e as Error).message);
+      toast.error("Failed: " + (e as Error).message);
     } finally {
       setLoading(false);
     }
