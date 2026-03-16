@@ -27,6 +27,7 @@ function Dashboard() {
     searchParams.get("loc") ?? null
   );
   const [loading, setLoading] = useState(true);
+  const [sortBy, setSortBy] = useState<"id" | "name">("id");
 
   // Sync state to URL params
   useEffect(() => {
@@ -85,11 +86,21 @@ function Dashboard() {
         )}
       </div>
 
-      <LocationFilter
-        locations={locations}
-        selected={selectedLocation}
-        onSelect={setSelectedLocation}
-      />
+      <div className="flex items-center justify-between gap-3">
+        <LocationFilter
+          locations={locations}
+          selected={selectedLocation}
+          onSelect={setSelectedLocation}
+        />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as "id" | "name")}
+          className="shrink-0 text-xs bg-secondary border border-border/50 rounded-lg px-2 py-1.5 text-muted-foreground focus:outline-none focus:border-primary"
+        >
+          <option value="id">Sort: ID</option>
+          <option value="name">Sort: Name</option>
+        </select>
+      </div>
 
       {loading ? (
         <div className="space-y-3">
@@ -106,9 +117,15 @@ function Dashboard() {
         </div>
       ) : (
         <div className="space-y-2">
-          {parts.map((part) => (
-            <PartCard key={part.id} part={part} onDeleted={fetchParts} />
-          ))}
+          {[...parts]
+            .sort((a, b) =>
+              sortBy === "name"
+                ? a.item_name.localeCompare(b.item_name)
+                : a.item_code - b.item_code
+            )
+            .map((part) => (
+              <PartCard key={part.id} part={part} onDeleted={fetchParts} />
+            ))}
         </div>
       )}
     </div>
