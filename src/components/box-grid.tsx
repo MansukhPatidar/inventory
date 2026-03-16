@@ -141,9 +141,9 @@ export function BoxGrid({
           return (
             <div
               key={binNum}
-              className="flex items-center justify-center rounded-lg border border-dashed border-border/30 bg-muted/20 min-h-[52px]"
+              className="flex items-center justify-center rounded-lg border border-green-500/30 bg-green-500/10 min-h-[52px]"
             >
-              <span className="text-[10px] font-mono text-muted-foreground/40">
+              <span className="text-[10px] font-mono text-green-500/50">
                 {binNum}
               </span>
             </div>
