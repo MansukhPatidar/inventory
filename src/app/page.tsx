@@ -34,8 +34,9 @@ function Dashboard() {
     if (search) params.set("q", search);
     if (selectedLocation) params.set("loc", selectedLocation);
     const str = params.toString();
-    router.replace(str ? `/?${str}` : "/", { scroll: false });
-  }, [search, selectedLocation, router]);
+    const newUrl = str ? `?${str}` : window.location.pathname;
+    window.history.replaceState(null, "", newUrl);
+  }, [search, selectedLocation]);
 
   const fetchParts = useCallback(async () => {
     setLoading(true);
