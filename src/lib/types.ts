@@ -12,6 +12,12 @@ export interface Part {
   updated_at: string;
 }
 
+export interface Box {
+  id: string;
+  bin_count: number;
+  created_at: string;
+}
+
 export interface QtyLog {
   id: number;
   part_id: number;

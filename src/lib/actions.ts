@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Part } from "./types";
+import type { Part, Box } from "./types";
 
 export async function getLocations(): Promise<string[]> {
   const { data, error } = await supabase
@@ -179,4 +179,66 @@ export async function importParts(
     results.push(data);
   }
   return results;
+}
+
+// --- Boxes ---
+
+export async function getBoxes(): Promise<Box[]> {
+  const { data, error } = await supabase
+    .from("boxes")
+    .select("*")
+    .order("id");
+  if (error) throw error;
+  return data as Box[];
+}
+
+export async function getBoxesWithParts(): Promise<{
+  boxes: Box[];
+  partsByBox: Record<string, Part[]>;
+}> {
+  const [boxesRes, partsRes] = await Promise.all([
+    supabase.from("boxes").select("*").order("id"),
+    supabase
+      .from("parts")
+      .select("*")
+      .not("location", "is", null)
+      .order("item_code", { ascending: true }),
+  ]);
+  if (boxesRes.error) throw boxesRes.error;
+  if (partsRes.error) throw partsRes.error;
+
+  const partsByBox: Record<string, Part[]> = {};
+  for (const part of partsRes.data as Part[]) {
+    const loc = part.location!;
+    if (!partsByBox[loc]) partsByBox[loc] = [];
+    partsByBox[loc].push(part);
+  }
+
+  return { boxes: boxesRes.data as Box[], partsByBox };
+}
+
+export async function createBox(id: string, bin_count: number): Promise<Box> {
+  const { data, error } = await supabase
+    .from("boxes")
+    .insert({ id, bin_count })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Box;
+}
+
+export async function updateBox(id: string, bin_count: number): Promise<Box> {
+  const { data, error } = await supabase
+    .from("boxes")
+    .update({ bin_count })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Box;
+}
+
+export async function deleteBox(id: string): Promise<void> {
+  const { error } = await supabase.from("boxes").delete().eq("id", id);
+  if (error) throw error;
 }

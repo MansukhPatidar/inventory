@@ -68,12 +68,22 @@ function Dashboard() {
         </p>
       </div>
 
-      <Input
-        placeholder="Search parts..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="text-base h-11 bg-card border-border/50 focus-visible:border-primary"
-      />
+      <div className="relative">
+        <Input
+          placeholder="Search parts..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="text-base h-11 bg-card border-border/50 focus-visible:border-primary pr-9"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        )}
+      </div>
 
       <LocationFilter
         locations={locations}
