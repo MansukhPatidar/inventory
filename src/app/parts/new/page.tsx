@@ -456,12 +456,19 @@ export default function NewPartPage() {
             </div>
           </div>
           <div className="space-y-2">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <Label htmlFor="item_code" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Item Code
             </Label>
-            <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-              {currentCode || "..."}
-            </div>
+            <Input
+              id="item_code"
+              type="number"
+              value={currentCode || ""}
+              onChange={(e) => {
+                const val = parseInt(e.target.value) || 0;
+                setNextCode(val - queue.length);
+              }}
+              className="font-mono bg-secondary border-border/50"
+            />
           </div>
         </div>
 

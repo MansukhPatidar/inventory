@@ -1,5 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="64" fill="#09090b"/>
-  <text x="256" y="300" font-family="system-ui,sans-serif" font-size="240" font-weight="700" fill="#e8a54b" text-anchor="middle">P</text>
-  <rect x="140" y="360" width="232" height="4" rx="2" fill="#e8a54b" opacity="0.6"/>
+  <rect width="512" height="512" rx="80" fill="#09090b"/>
+  <!-- IC chip body -->
+  <rect x="156" y="156" width="200" height="200" rx="16" fill="#1a1a2e" stroke="#e8a54b" stroke-width="8"/>
+  <!-- Pins left -->
+  <rect x="116" y="190" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <rect x="116" y="230" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <rect x="116" y="270" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <rect x="116" y="310" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <!-- Pins right -->
+  <rect x="348" y="190" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <rect x="348" y="230" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <rect x="348" y="270" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <rect x="348" y="310" width="48" height="12" rx="3" fill="#e8a54b"/>
+  <!-- Pins top -->
+  <rect x="190" y="116" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <rect x="230" y="116" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <rect x="270" y="116" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <rect x="310" y="116" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <!-- Pins bottom -->
+  <rect x="190" y="348" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <rect x="230" y="348" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <rect x="270" y="348" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <rect x="310" y="348" width="12" height="48" rx="3" fill="#e8a54b"/>
+  <!-- Pin 1 dot -->
+  <circle cx="188" cy="188" r="10" fill="#e8a54b" opacity="0.5"/>
 </svg>
