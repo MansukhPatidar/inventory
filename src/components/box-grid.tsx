@@ -3,21 +3,6 @@
 import Link from "next/link";
 import type { Box, Part } from "@/lib/types";
 
-/**
- * Extract the bin number from a barcode like "B1-3" → 3.
- * Falls back to the part's index in the array if barcode doesn't match.
- */
-function binNumber(part: Part): number {
-  if (part.barcode) {
-    const dash = part.barcode.lastIndexOf("-");
-    if (dash !== -1) {
-      const num = parseInt(part.barcode.slice(dash + 1));
-      if (!isNaN(num)) return num;
-    }
-  }
-  return part.item_code;
-}
-
 export function BoxGrid({
   box,
   parts,
@@ -27,17 +12,9 @@ export function BoxGrid({
   parts: Part[];
   onEdit: () => void;
 }) {
-  // Map bin number → part
-  const binMap = new Map<number, Part>();
-  for (const part of parts) {
-    binMap.set(binNumber(part), part);
-  }
-
-  // Find all bin numbers used to determine the range
-  const usedBins = parts.map(binNumber);
-  const maxBin = usedBins.length > 0 ? Math.max(...usedBins) : 0;
-  const totalSlots = Math.max(box.bin_count, maxBin);
-
+  // Parts are already sorted by item_code from the query.
+  // Assign them sequentially to bins 1..N within this box.
+  const totalSlots = box.bin_count;
   const used = parts.length;
   const fillPct = totalSlots > 0 ? (used / totalSlots) * 100 : 0;
   const fillColor =
@@ -77,7 +54,7 @@ export function BoxGrid({
       <div className="p-3 grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
         {Array.from({ length: totalSlots }, (_, i) => {
           const binNum = i + 1;
-          const part = binMap.get(binNum);
+          const part = parts[i]; // sequential assignment
 
           if (part) {
             return (
