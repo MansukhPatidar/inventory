@@ -11,6 +11,7 @@ import {
   updatePart,
   getNextItemCode,
   getPackages,
+  getOccupiedBins,
 } from "@/lib/actions";
 import type { Part } from "@/lib/types";
 
@@ -23,6 +24,12 @@ export function PartForm({ part }: { part?: Part }) {
   const [packages, setPackages] = useState<string[]>([]);
   const [showPkgDropdown, setShowPkgDropdown] = useState(false);
   const pkgRef = useRef<HTMLDivElement>(null);
+
+  const [sharedBin, setSharedBin] = useState(part?.bin_number != null);
+  const [binNumber, setBinNumber] = useState<number | null>(part?.bin_number ?? null);
+  const [occupiedBins, setOccupiedBins] = useState<
+    { bin_number: number; parts: { id: number; item_name: string }[] }[]
+  >([]);
 
   const [formData, setFormData] = useState({
     item_code: part?.item_code ?? 0,
@@ -40,13 +47,21 @@ export function PartForm({ part }: { part?: Part }) {
       getNextItemCode().then((code) =>
         setFormData((prev) => ({ ...prev, item_code: code }))
       );
-      // Auto-fill last used location
       const lastLoc = localStorage.getItem(LAST_LOCATION_KEY);
       if (lastLoc) {
         setFormData((prev) => ({ ...prev, location: lastLoc }));
       }
     }
   }, [isNew]);
+
+  // Fetch occupied bins when location changes
+  useEffect(() => {
+    if (formData.location) {
+      getOccupiedBins(formData.location).then(setOccupiedBins).catch(() => {});
+    } else {
+      setOccupiedBins([]);
+    }
+  }, [formData.location]);
 
   // Close package dropdown on outside click
   useEffect(() => {
@@ -59,7 +74,6 @@ export function PartForm({ part }: { part?: Part }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Generate barcode from location + item_code
   const barcode =
     formData.location && formData.item_code
       ? `${formData.location}-${formData.item_code}`
@@ -77,10 +91,11 @@ export function PartForm({ part }: { part?: Part }) {
     e.preventDefault();
     setLoading(true);
     try {
-      // Remember location for next time
       if (formData.location) {
         localStorage.setItem(LAST_LOCATION_KEY, formData.location);
       }
+
+      const binValue = sharedBin ? binNumber : null;
 
       if (part) {
         await updatePart(part.id, {
@@ -91,6 +106,7 @@ export function PartForm({ part }: { part?: Part }) {
           location: formData.location || undefined,
           details: formData.details || undefined,
           qty: formData.qty,
+          bin_number: binValue,
         });
         router.push(`/parts?id=${part.id}`);
       } else {
@@ -102,6 +118,7 @@ export function PartForm({ part }: { part?: Part }) {
           location: formData.location || null,
           details: formData.details || null,
           qty: formData.qty,
+          bin_number: binValue,
         });
         router.push(`/parts?id=${created.id}`);
       }
@@ -114,7 +131,6 @@ export function PartForm({ part }: { part?: Part }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Auto-generated fields - read only */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -157,7 +173,6 @@ export function PartForm({ part }: { part?: Part }) {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        {/* Package - typable combobox */}
         <div className="space-y-2 relative" ref={pkgRef}>
           <Label htmlFor="package" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Package
@@ -193,7 +208,6 @@ export function PartForm({ part }: { part?: Part }) {
           )}
         </div>
 
-        {/* Location - editable, remembers last */}
         <div className="space-y-2">
           <Label htmlFor="location" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Location
@@ -209,6 +223,71 @@ export function PartForm({ part }: { part?: Part }) {
           />
         </div>
       </div>
+
+      {/* Shared bin */}
+      {formData.location && (
+        <div className="space-y-3 rounded-lg border border-border/30 bg-secondary/30 p-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sharedBin}
+              onChange={(e) => {
+                setSharedBin(e.target.checked);
+                if (!e.target.checked) setBinNumber(null);
+              }}
+              className="rounded border-border accent-primary"
+            />
+            <span className="text-sm font-medium">Share a bin with another part</span>
+          </label>
+
+          {sharedBin && (
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Bin Number
+              </Label>
+              {occupiedBins.length > 0 ? (
+                <div className="space-y-2">
+                  <select
+                    value={binNumber ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setBinNumber(val ? parseInt(val) : null);
+                    }}
+                    className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 text-sm font-mono focus:outline-none focus:border-primary"
+                  >
+                    <option value="">Select existing bin...</option>
+                    {occupiedBins.map((bin) => (
+                      <option key={bin.bin_number} value={bin.bin_number}>
+                        Bin {bin.bin_number} — {bin.parts.map((p) => p.item_name).join(", ")}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-muted-foreground">or enter a new bin number:</div>
+                  <Input
+                    type="number"
+                    value={binNumber ?? ""}
+                    onChange={(e) =>
+                      setBinNumber(e.target.value ? parseInt(e.target.value) : null)
+                    }
+                    placeholder="Bin number..."
+                    className="font-mono bg-secondary border-border/50"
+                  />
+                </div>
+              ) : (
+                <Input
+                  type="number"
+                  value={binNumber ?? ""}
+                  onChange={(e) =>
+                    setBinNumber(e.target.value ? parseInt(e.target.value) : null)
+                  }
+                  placeholder="Bin number..."
+                  className="font-mono bg-secondary border-border/50"
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">

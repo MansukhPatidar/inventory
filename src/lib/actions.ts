@@ -181,6 +181,30 @@ export async function importParts(
   return results;
 }
 
+export async function getOccupiedBins(
+  location: string
+): Promise<{ bin_number: number; parts: { id: number; item_name: string }[] }[]> {
+  const { data, error } = await supabase
+    .from("parts")
+    .select("id, item_name, bin_number")
+    .eq("location", location)
+    .not("bin_number", "is", null)
+    .order("bin_number");
+  if (error) throw error;
+
+  const binMap = new Map<number, { id: number; item_name: string }[]>();
+  for (const row of data) {
+    const bn = row.bin_number as number;
+    if (!binMap.has(bn)) binMap.set(bn, []);
+    binMap.get(bn)!.push({ id: row.id, item_name: row.item_name });
+  }
+
+  return Array.from(binMap.entries()).map(([bin_number, parts]) => ({
+    bin_number,
+    parts,
+  }));
+}
+
 // --- Boxes ---
 
 export async function getBoxes(): Promise<Box[]> {

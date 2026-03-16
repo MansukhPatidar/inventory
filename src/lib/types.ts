@@ -7,6 +7,7 @@ export interface Part {
   location: string | null;
   details: string | null;
   qty: number;
+  bin_number: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

@@ -404,6 +404,7 @@ export default function NewPartPage() {
           location: p.location || null,
           details: p.details || null,
           qty: p.qty,
+          bin_number: null,
         });
         succeeded++;
       } catch {
