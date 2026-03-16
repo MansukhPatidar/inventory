@@ -418,7 +418,6 @@ export default function NewPartPage() {
       toast.success(`Saved ${succeeded} part${succeeded > 1 ? "s" : ""}`);
       setQueue([]);
       router.push("/");
-      router.refresh();
     } else {
       toast.error(
         `${succeeded} saved, ${failed} failed. Check for duplicate item codes.`

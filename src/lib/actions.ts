@@ -1,17 +1,7 @@
-"use server";
-
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase";
 import type { Part } from "./types";
 
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
-
 export async function getLocations(): Promise<string[]> {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .select("location")
@@ -23,7 +13,6 @@ export async function getLocations(): Promise<string[]> {
 }
 
 export async function getParts(search?: string, location?: string) {
-  const supabase = getSupabase();
   let query = supabase
     .from("parts")
     .select("*")
@@ -45,7 +34,6 @@ export async function getParts(search?: string, location?: string) {
 }
 
 export async function getPartById(id: number) {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .select("*")
@@ -56,7 +44,6 @@ export async function getPartById(id: number) {
 }
 
 export async function getPartByBarcode(barcode: string) {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .select("*")
@@ -69,7 +56,6 @@ export async function getPartByBarcode(barcode: string) {
 export async function createPart(
   part: Omit<Part, "id" | "notes" | "created_at" | "updated_at">
 ) {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .insert(part)
@@ -83,7 +69,6 @@ export async function updatePart(
   id: number,
   updates: Partial<Omit<Part, "id" | "created_at" | "updated_at">>
 ) {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -95,7 +80,6 @@ export async function updatePart(
 }
 
 export async function deletePart(id: number) {
-  const supabase = getSupabase();
   const { error } = await supabase.from("parts").delete().eq("id", id);
   if (error) throw error;
 }
@@ -105,8 +89,6 @@ export async function adjustQty(
   delta: number,
   note?: string
 ) {
-  const supabase = getSupabase();
-
   const { data: part, error: partError } = await supabase
     .from("parts")
     .select("qty")
@@ -134,7 +116,6 @@ export async function adjustQty(
 }
 
 export async function getQtyLog(partId: number) {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("qty_log")
     .select("*")
@@ -145,7 +126,6 @@ export async function getQtyLog(partId: number) {
 }
 
 export async function getPackages(): Promise<string[]> {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .select("package")
@@ -157,7 +137,6 @@ export async function getPackages(): Promise<string[]> {
 }
 
 export async function getNextItemCode() {
-  const supabase = getSupabase();
   const { data, error } = await supabase
     .from("parts")
     .select("item_code")
@@ -178,8 +157,6 @@ export async function importParts(
     qty?: number;
   }[]
 ) {
-  const supabase = getSupabase();
-
   // Insert in batches to avoid bulk upsert issues
   const results = [];
   for (const p of parts) {

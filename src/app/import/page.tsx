@@ -72,7 +72,6 @@ export default function ImportPage() {
     try {
       await importParts(rows);
       router.push("/");
-      router.refresh();
     } catch (err) {
       setError("Import failed: " + (err as Error).message);
     } finally {

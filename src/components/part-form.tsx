@@ -91,7 +91,7 @@ export function PartForm({ part }: { part?: Part }) {
           details: formData.details || undefined,
           qty: formData.qty,
         });
-        router.push(`/parts/${part.id}`);
+        router.push(`/parts?id=${part.id}`);
       } else {
         const created = await createPart({
           barcode: barcode || null,
@@ -102,9 +102,8 @@ export function PartForm({ part }: { part?: Part }) {
           details: formData.details || null,
           qty: formData.qty,
         });
-        router.push(`/parts/${created.id}`);
+        router.push(`/parts?id=${created.id}`);
       }
-      router.refresh();
     } catch (e) {
       alert("Error: " + (e as Error).message);
     } finally {

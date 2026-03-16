@@ -43,7 +43,7 @@ export function PartCard({
     <>
       <div className="group flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card hover:bg-accent hover:border-border transition-all">
         <Link
-          href={`/parts/${part.id}`}
+          href={`/parts?id=${part.id}`}
           className="min-w-0 flex-1"
         >
           <div className="flex items-center gap-2 mb-1">
@@ -83,7 +83,7 @@ export function PartCard({
             {part.qty}
           </span>
           <Link
-            href={`/parts/${part.id}?edit=1`}
+            href={`/parts?id=${part.id}&edit=1`}
             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-all p-1"
             title="Edit"
           >

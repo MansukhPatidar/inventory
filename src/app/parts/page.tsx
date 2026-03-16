@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, use } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,14 +19,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { getPartById, getQtyLog, deletePart, updatePart } from "@/lib/actions";
 import type { Part, QtyLog } from "@/lib/types";
 
-export default function PartDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+export default function PartDetailWrapper() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4">
+          <div className="h-8 w-48 rounded-lg bg-card animate-pulse" />
+          <div className="h-4 w-32 rounded bg-card animate-pulse" />
+          <div className="h-24 rounded-xl bg-card animate-pulse" />
+        </div>
+      }
+    >
+      <PartDetailPage />
+    </Suspense>
+  );
+}
+
+function PartDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const id = searchParams.get("id");
   const [part, setPart] = useState<Part | null>(null);
   const [logs, setLogs] = useState<QtyLog[]>([]);
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
@@ -38,6 +50,7 @@ export default function PartDetailPage({
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!id) return;
     try {
       const [partData, logData] = await Promise.all([
         getPartById(parseInt(id)),
@@ -58,6 +71,7 @@ export default function PartDetailPage({
   }, [fetchData]);
 
   async function handleDelete() {
+    if (!id) return;
     setDeleting(true);
     try {
       await deletePart(parseInt(id));
@@ -68,6 +82,8 @@ export default function PartDetailPage({
       setDeleting(false);
     }
   }
+
+  if (!id) return <p className="text-destructive">No part ID specified</p>;
 
   if (loading) {
     return (
@@ -165,7 +181,6 @@ export default function PartDetailPage({
           onChange={(e) => {
             const val = e.target.value;
             setNotesValue(val);
-            // Auto-save after 800ms of no typing
             if (notesTimer.current) clearTimeout(notesTimer.current);
             notesTimer.current = setTimeout(async () => {
               setNotesSaving(true);

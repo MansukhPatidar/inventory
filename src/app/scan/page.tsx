@@ -16,7 +16,7 @@ export default function ScanPage() {
 
     const part = await getPartByBarcode(barcode);
     if (part) {
-      router.push(`/parts/${part.id}`);
+      router.push(`/parts?id=${part.id}`);
     } else {
       setStatus(`No part found for "${barcode}"`);
       setTimeout(() => {
