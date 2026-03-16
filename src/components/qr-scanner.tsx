@@ -8,29 +8,20 @@ export function QrScanner({
   onScan: (barcode: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
   const stoppedRef = useRef(false);
+  const scannerDivRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     stoppedRef.current = false;
-    let scannerDiv: HTMLDivElement | null = null;
+    const scannerDiv = scannerDivRef.current;
 
     async function init() {
-      if (!containerRef.current) return;
-
-      // Create a fresh div for the scanner outside React's control
-      scannerDiv = document.createElement("div");
-      scannerDiv.id = "qr-reader-" + Date.now();
-      containerRef.current.appendChild(scannerDiv);
+      if (!scannerDiv) return;
 
       try {
         const { Html5Qrcode } = await import("html5-qrcode");
-        if (stoppedRef.current) {
-          scannerDiv.remove();
-          return;
-        }
+        if (stoppedRef.current) return;
 
         const scanner = new Html5Qrcode(scannerDiv.id);
         scannerRef.current = scanner;
@@ -46,7 +37,6 @@ export function QrScanner({
           },
           () => {}
         );
-        if (!stoppedRef.current) setReady(true);
       } catch {
         if (!stoppedRef.current) {
           setError(
@@ -65,10 +55,6 @@ export function QrScanner({
         scanner.stop().catch(() => {});
         scannerRef.current = null;
       }
-      // Clean up the DOM element we created
-      if (scannerDiv && scannerDiv.parentNode) {
-        scannerDiv.remove();
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -76,15 +62,10 @@ export function QrScanner({
   return (
     <div>
       <div
-        ref={containerRef}
-        className={`w-full min-h-[300px] overflow-hidden ${ready ? "" : "flex items-center justify-center"}`}
-      >
-        {!ready && !error && (
-          <p className="text-sm text-muted-foreground animate-pulse">
-            Starting camera...
-          </p>
-        )}
-      </div>
+        id={"qr-reader-" + "static"}
+        ref={scannerDivRef}
+        style={{ width: "100%", minHeight: 300 }}
+      />
       {error && (
         <div className="p-4 text-sm text-amber-400 bg-amber-400/10 rounded-lg m-4">
           {error}
