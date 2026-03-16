@@ -77,7 +77,7 @@ export function QrScanner({
     <div>
       <div
         ref={containerRef}
-        className={`w-full overflow-hidden ${ready ? "" : "min-h-[300px] flex items-center justify-center"}`}
+        className={`w-full min-h-[300px] overflow-hidden ${ready ? "" : "flex items-center justify-center"}`}
       >
         {!ready && !error && (
           <p className="text-sm text-muted-foreground animate-pulse">
