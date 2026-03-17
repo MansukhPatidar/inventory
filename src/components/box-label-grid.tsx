@@ -53,21 +53,21 @@ export function BoxLabelGrid({ boxes }: { boxes: Box[] }) {
         {labels.map((box, i) => (
           <div
             key={`${box.id}-${i}`}
-            className="flex flex-col items-center justify-center bg-white overflow-hidden print:bg-white"
+            className="flex items-center gap-2 bg-white overflow-hidden print:bg-white"
             style={{
               width: "60mm",
               height: "30mm",
-              padding: "2mm",
+              padding: "2mm 3mm",
             }}
           >
             <canvas
               data-qr={box.id}
               className="shrink-0"
-              style={{ width: "18mm", height: "18mm" }}
+              style={{ width: "22mm", height: "22mm" }}
             />
             <div
-              className="font-bold text-black leading-none text-center mt-1"
-              style={{ fontSize: "11pt" }}
+              className="font-bold text-black leading-tight"
+              style={{ fontSize: "16pt" }}
             >
               {box.id}
             </div>
