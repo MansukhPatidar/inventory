@@ -61,6 +61,9 @@ export function PartCard({
             {part.location && (
               <span className="font-sans ml-2 text-primary/70">
                 {part.location}
+                {part.bin_number != null && (
+                  <span className="text-muted-foreground/70"> bin {part.bin_number}</span>
+                )}
               </span>
             )}
             {part.details && (
