@@ -17,9 +17,11 @@ import type { Part } from "@/lib/types";
 
 export function PartCard({
   part,
+  allParts,
   onDeleted,
 }: {
   part: Part;
+  allParts?: Part[];
   onDeleted?: () => void;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -61,9 +63,6 @@ export function PartCard({
             {part.location && (
               <span className="font-sans ml-2 text-primary/70">
                 {part.location}
-                {part.bin_number != null && (
-                  <span className="text-muted-foreground/70"> bin {part.bin_number}</span>
-                )}
               </span>
             )}
             {part.details && (
@@ -72,6 +71,17 @@ export function PartCard({
               </span>
             )}
           </div>
+          {part.bin_number != null && part.location && allParts && (() => {
+            const siblings = allParts.filter(
+              (p) => p.id !== part.id && p.location === part.location && p.bin_number === part.bin_number
+            );
+            if (siblings.length === 0) return null;
+            return (
+              <div className="text-xs text-muted-foreground/60 truncate">
+                Shared bin {part.bin_number}: {siblings.map((p) => p.item_code).join(", ")}
+              </div>
+            );
+          })()}
         </Link>
         <div className="flex items-center gap-2 shrink-0 ml-4">
           <span

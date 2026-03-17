@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { LocationFilter } from "@/components/box-filter";
@@ -124,7 +124,7 @@ function Dashboard() {
                 : a.item_code - b.item_code
             )
             .map((part) => (
-              <PartCard key={part.id} part={part} onDeleted={fetchParts} />
+              <PartCard key={part.id} part={part} allParts={parts} onDeleted={fetchParts} />
             ))}
         </div>
       )}
