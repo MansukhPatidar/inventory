@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Package, Grid3X3, Plus, Tags, Search } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import { AuthGate } from "@/components/auth-gate";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -47,25 +48,27 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <div className="min-h-dvh flex flex-col">
-          <header className="border-b border-border/50 bg-background/80 backdrop-blur-xl sticky top-0 z-50">
-            <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-              <Link href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight text-primary">
-                <Package size={20} />
-                <span>Inventory</span>
-              </Link>
-              <nav className="flex items-center gap-0.5">
-                <NavLink href="/" icon={<Search size={16} />}>Search</NavLink>
-                <NavLink href="/storage" icon={<Grid3X3 size={16} />}>Boxes</NavLink>
-                <NavLink href="/parts/new" icon={<Plus size={16} />}>Add</NavLink>
-                <NavLink href="/labels" icon={<Tags size={16} />}>Labels</NavLink>
-              </nav>
-            </div>
-          </header>
-          <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6">
-            {children}
-          </main>
-        </div>
+        <AuthGate>
+          <div className="min-h-dvh flex flex-col">
+            <header className="border-b border-border/50 bg-background/80 backdrop-blur-xl sticky top-0 z-50">
+              <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
+                <Link href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight text-primary">
+                  <Package size={20} />
+                  <span>Inventory</span>
+                </Link>
+                <nav className="flex items-center gap-0.5">
+                  <NavLink href="/" icon={<Search size={16} />}>Search</NavLink>
+                  <NavLink href="/storage" icon={<Grid3X3 size={16} />}>Boxes</NavLink>
+                  <NavLink href="/parts/new" icon={<Plus size={16} />}>Add</NavLink>
+                  <NavLink href="/labels" icon={<Tags size={16} />}>Labels</NavLink>
+                </nav>
+              </div>
+            </header>
+            <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-6">
+              {children}
+            </main>
+          </div>
+        </AuthGate>
         <Toaster theme="dark" richColors />
       </body>
     </html>
