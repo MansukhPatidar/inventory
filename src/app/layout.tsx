@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { Package, Grid3X3, Plus, Tags } from "lucide-react";
+import { Package, Grid3X3, Plus, Tags, Search } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -54,7 +54,8 @@ export default function RootLayout({
                 <Package size={20} />
                 <span>Inventory</span>
               </Link>
-              <nav className="flex gap-0.5">
+              <nav className="flex items-center gap-0.5">
+                <NavLink href="/" icon={<Search size={16} />}>Search</NavLink>
                 <NavLink href="/storage" icon={<Grid3X3 size={16} />}>Boxes</NavLink>
                 <NavLink href="/parts/new" icon={<Plus size={16} />}>Add</NavLink>
                 <NavLink href="/labels" icon={<Tags size={16} />}>Labels</NavLink>
