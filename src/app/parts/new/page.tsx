@@ -31,6 +31,7 @@ interface QueuedPart {
   details: string;
   qty: number;
   barcode: string;
+  lowConfidence?: boolean;
 }
 
 // --- Paste parser ---
