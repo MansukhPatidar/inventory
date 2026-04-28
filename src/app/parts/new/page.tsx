@@ -106,6 +106,19 @@ const SKU_LINE_RE = /^SKU:\s*(\S+)\s*$/i;
 const ORDER_QTY_LINE_RE =
   /^(\d+)\s+[₹$€£¥]\s*[\d.,]+\s+[₹$€£¥]\s*[\d.,]+\s*$/;
 
+function looksLikeOrderTable(lines: string[]): boolean {
+  if (lines.length > 0 && ORDER_TABLE_HEADER_RE.test(lines[0])) {
+    return true;
+  }
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!SKU_LINE_RE.test(lines[i])) continue;
+    for (let j = i + 1; j <= i + 2 && j < lines.length; j++) {
+      if (ORDER_QTY_LINE_RE.test(lines[j])) return true;
+    }
+  }
+  return false;
+}
+
 function parsePastedText(
   text: string,
   startCode: number,
@@ -114,13 +127,15 @@ function parsePastedText(
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return [];
 
-  // Check if this is "name × qty" format (inline quantity)
+  if (looksLikeOrderTable(lines)) {
+    return parseOrderTableFormat(lines, startCode, location);
+  }
+
   const inlineMatches = lines.filter((l) => INLINE_QTY_RE.test(l));
   if (inlineMatches.length >= lines.filter((l) => !SKIP_LINE_RE.test(l)).length * 0.5) {
     return parseInlineQtyFormat(lines, startCode, location);
   }
 
-  // Otherwise: tabular format
   return parseTabularFormat(lines, startCode, location);
 }
 
