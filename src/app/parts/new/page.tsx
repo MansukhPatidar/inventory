@@ -95,6 +95,17 @@ const INLINE_QTY_RE = /^(.+?)\s*[×xX✕]\s*(\d+)\s*$/;
 // Lines to skip: coupons, discounts, empty-ish
 const SKIP_LINE_RE = /^(QIKIFY|COUPON|DISCOUNT|PROMO|SUBTOTAL|TOTAL|SHIPPING|TAX|\s*[-–—]\s*Rs\.?)/i;
 
+// Order-table format (Robu paste): 3-line stanza per item.
+// Optional header line: "Product   Qty   Unit Price   Total"
+const ORDER_TABLE_HEADER_RE =
+  /^\s*Product\s+Qty\s+Unit\s*Price\s+Total\s*$/i;
+// SKU line: "SKU: <alphanumeric>"
+const SKU_LINE_RE = /^SKU:\s*(\S+)\s*$/i;
+// Qty/price line: "<int>   ₹ <dec>   ₹ <dec>"
+// Whitespace between columns is variable. Currency symbol can be ₹, $, €, etc.
+const ORDER_QTY_LINE_RE =
+  /^(\d+)\s+[₹$€£¥]\s*[\d.,]+\s+[₹$€£¥]\s*[\d.,]+\s*$/;
+
 function parsePastedText(
   text: string,
   startCode: number,
@@ -265,6 +276,65 @@ function classifyColumnsHeuristic(cols: string[]): {
   }
 
   return { name, qty, pkg, details };
+}
+
+function parseOrderTableFormat(
+  lines: string[],
+  startCode: number,
+  location: string
+): QueuedPart[] {
+  let body = lines;
+  if (body.length > 0 && ORDER_TABLE_HEADER_RE.test(body[0])) {
+    body = body.slice(1);
+  }
+
+  const parts: QueuedPart[] = [];
+  let code = startCode;
+  let i = 0;
+
+  while (i < body.length) {
+    const nameLine = body[i];
+    const skuLine = body[i + 1];
+    const qtyLine = body[i + 2];
+
+    if (
+      !skuLine ||
+      !qtyLine ||
+      !SKU_LINE_RE.test(skuLine) ||
+      !ORDER_QTY_LINE_RE.test(qtyLine)
+    ) {
+      i++;
+      continue;
+    }
+
+    const qtyMatch = qtyLine.match(ORDER_QTY_LINE_RE);
+    const qty = qtyMatch ? parseInt(qtyMatch[1], 10) || 0 : 0;
+
+    const item_name = nameLine.trim();
+    let pkg = "";
+    const pkgMatch = item_name.match(PKG_RE);
+    if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
+
+    const lowConfidence = qty === 0 || item_name.length < 5;
+
+    const barcode = location ? `${location}-${code}` : "";
+
+    parts.push({
+      id: crypto.randomUUID(),
+      item_code: code,
+      item_name,
+      package: pkg,
+      location,
+      details: item_name,
+      qty,
+      barcode,
+      lowConfidence: lowConfidence || undefined,
+    });
+    code++;
+    i += 3;
+  }
+
+  return parts;
 }
 
 // --- Component ---
