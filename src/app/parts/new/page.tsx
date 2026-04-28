@@ -692,6 +692,13 @@ export default function NewPartPage() {
                   onClick={() => setEditingPart({ ...part })}
                 >
                   <div className="flex items-center gap-2">
+                    {part.lowConfidence && (
+                      <span
+                        aria-label="Low confidence — review before saving"
+                        title="Low confidence — review before saving"
+                        className="shrink-0 inline-block h-2 w-2 rounded-full bg-amber-500"
+                      />
+                    )}
                     <span className="font-medium truncate group-hover:text-primary transition-colors">
                       {part.item_name}
                     </span>
