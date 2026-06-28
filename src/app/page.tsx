@@ -21,6 +21,7 @@ function Dashboard() {
   const searchParams = useSearchParams();
 
   const [parts, setParts] = useState<Part[]>([]);
+  const [allParts, setAllParts] = useState<Part[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
   const [selectedLocation, setSelectedLocation] = useState<string | null>(
@@ -51,6 +52,7 @@ function Dashboard() {
     try {
       const data = await getParts(search || undefined, selectedLocation || undefined);
       setParts(data);
+      getParts().then(setAllParts);
     } catch {
       console.error("Failed to fetch parts");
     } finally {
@@ -60,6 +62,7 @@ function Dashboard() {
 
   useEffect(() => {
     getLocations().then(setLocations);
+    getParts().then(setAllParts);
   }, []);
 
   useEffect(() => {
@@ -142,7 +145,7 @@ function Dashboard() {
           <>
             <div className="space-y-2">
               {paged.map((part) => (
-                <PartCard key={part.id} part={part} allParts={parts} onDeleted={fetchParts} />
+                <PartCard key={part.id} part={part} allParts={allParts} onDeleted={fetchParts} />
               ))}
             </div>
             {totalPages > 1 && (
