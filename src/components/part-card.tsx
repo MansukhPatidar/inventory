@@ -78,7 +78,7 @@ export function PartCard({
             if (siblings.length === 0) return null;
             return (
               <div className="text-xs text-muted-foreground/60 truncate">
-                Shared bin {part.bin_number}: {siblings.map((p) => p.item_code).join(", ")}
+                Shared with: {siblings.map((p) => p.item_name).join(", ")}
               </div>
             );
           })()}
