@@ -123,6 +123,22 @@ describe("assignBins", () => {
     expect(result.get(4)).toBe(4);
   });
 
+  it("jumps over an explicit bin that sits ahead of the fill sequence", () => {
+    // The shape production data actually has: hand-placed bins scattered
+    // through a box, unbinned parts filling the gaps around them.
+    const parts = [
+      part(1, 100, "B9", 1),
+      part(2, 200, "B9", null),
+      part(3, 300, "B9", null),
+      part(4, 400, "B9", 4),
+      part(5, 500, "B9", null),
+    ];
+    const result = assignBins(parts);
+    expect(result.get(2)).toBe(2);
+    expect(result.get(3)).toBe(3);
+    expect(result.get(5)).toBe(5);
+  });
+
   it("ignores parts with no location", () => {
     const parts = [part(1, 100, null, null)];
     expect(assignBins(parts).size).toBe(0);
