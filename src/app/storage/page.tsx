@@ -100,6 +100,15 @@ export default function StoragePage() {
 
   async function handleDelete() {
     if (!deleteTarget) return;
+    const count = (partsByBox[deleteTarget.id] || []).length;
+    if (count > 0) {
+      toast.error(
+        `${deleteTarget.id} holds ${count} part${count > 1 ? "s" : ""}. Move ${
+          count > 1 ? "them" : "it"
+        } to another box first.`
+      );
+      return;
+    }
     setDeleting(true);
     try {
       await deleteBox(deleteTarget.id);
@@ -259,9 +268,24 @@ export default function StoragePage() {
           <DialogHeader>
             <DialogTitle>Delete box?</DialogTitle>
             <DialogDescription>
-              This will delete <strong>{deleteTarget?.id}</strong>. Parts
-              assigned to this box will keep their location but the box
-              definition will be removed.
+              {deleteTarget && (partsByBox[deleteTarget.id] || []).length > 0 ? (
+                <>
+                  <strong>{deleteTarget.id}</strong> holds{" "}
+                  {(partsByBox[deleteTarget.id] || []).length} part
+                  {(partsByBox[deleteTarget.id] || []).length > 1 ? "s" : ""}.
+                  Move {(partsByBox[deleteTarget.id] || []).length > 1
+                    ? "them"
+                    : "it"}{" "}
+                  to another box first — a box with parts in it cannot be
+                  deleted.
+                </>
+              ) : (
+                <>
+                  This will permanently delete{" "}
+                  <strong>{deleteTarget?.id}</strong>. This box has no parts
+                  in it, so nothing else is affected.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-3 justify-end pt-2">
@@ -275,7 +299,11 @@ export default function StoragePage() {
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={
+                deleting ||
+                (!!deleteTarget &&
+                  (partsByBox[deleteTarget.id] || []).length > 0)
+              }
             >
               {deleting ? "Deleting..." : "Delete"}
             </Button>

@@ -5,7 +5,6 @@ export async function getLocations(): Promise<string[]> {
   const { data, error } = await supabase
     .from("parts")
     .select("location")
-    .not("location", "is", null)
     .order("location");
   if (error) throw error;
   const unique = [...new Set(data.map((d) => d.location as string))];
@@ -203,7 +202,6 @@ export async function getBoxesWithParts(): Promise<{
     supabase
       .from("parts")
       .select("*")
-      .not("location", "is", null)
       .order("item_code", { ascending: true }),
   ]);
   if (boxesRes.error) throw boxesRes.error;
@@ -211,7 +209,7 @@ export async function getBoxesWithParts(): Promise<{
 
   const partsByBox: Record<string, Part[]> = {};
   for (const part of partsRes.data as Part[]) {
-    const loc = part.location!;
+    const loc = part.location;
     if (!partsByBox[loc]) partsByBox[loc] = [];
     partsByBox[loc].push(part);
   }

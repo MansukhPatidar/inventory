@@ -126,9 +126,6 @@ export default function ImportPage() {
                       Pkg
                     </th>
                     <th className="text-left p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Location
-                    </th>
-                    <th className="text-left p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       Qty
                     </th>
                   </tr>
@@ -140,7 +137,6 @@ export default function ImportPage() {
                       <td className="p-3 font-mono text-muted-foreground">{row.item_code}</td>
                       <td className="p-3">{row.item_name}</td>
                       <td className="p-3 font-mono text-muted-foreground">{row.package}</td>
-                      <td className="p-3 font-mono text-primary">{row.location}</td>
                       <td className="p-3 font-mono">{row.qty}</td>
                     </tr>
                   ))}

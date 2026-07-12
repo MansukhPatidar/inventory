@@ -21,7 +21,13 @@ import {
   getPartsInBox,
   getBoxes,
 } from "@/lib/actions";
-import { nextFreeBin, isOutOfRange, formatAddress } from "@/lib/bins";
+import {
+  isOutOfRange,
+  formatAddress,
+  allocateBins as allocateBinsPure,
+  OCCUPANCY_UNKNOWN,
+  type BoxOccupancy,
+} from "@/lib/bins";
 import type { Box } from "@/lib/types";
 
 const LAST_LOCATION_KEY = "inventory-last-location";
@@ -368,9 +374,12 @@ export default function NewPartPage() {
   const [boxes, setBoxes] = useState<Box[]>([]);
   // Occupancy cache keyed by box id, so allocation can be done against any
   // box (the form's box, or a different box picked in the edit dialog) —
-  // not just whichever box the form currently points at.
+  // not just whichever box the form currently points at. A key that is
+  // absent, or explicitly OCCUPANCY_UNKNOWN, means "do not allocate yet" —
+  // never treat that as "box is empty" (that's what caused silent bin
+  // collisions: an in-flight fetch reading as an empty box).
   const [boxOccupancyByLocation, setBoxOccupancyByLocation] = useState<
-    Record<string, { location: string; bin_number: number }[]>
+    Record<string, BoxOccupancy>
   >({});
 
   const [form, setForm] = useState({
@@ -396,9 +405,18 @@ export default function NewPartPage() {
     }
   }, [loadNextCode]);
 
-  // Fetch and cache a box's occupancy.
+  // Fetch and cache a box's occupancy. While in flight (and if it fails),
+  // the cache entry stays OCCUPANCY_UNKNOWN — never `[]` — so allocation
+  // callers can't mistake "haven't checked" for "box is empty". A failed
+  // fetch does NOT cache an empty array: that would let a later re-pick of
+  // the same box silently skip retrying (loadBoxOccupancy only re-fires on
+  // location change), permanently allocating from bin 1 into an occupied box.
   const loadBoxOccupancy = useCallback((location: string) => {
     if (!location) return;
+    setBoxOccupancyByLocation((prev) => ({
+      ...prev,
+      [location]: OCCUPANCY_UNKNOWN,
+    }));
     getPartsInBox(location)
       .then((parts) =>
         setBoxOccupancyByLocation((prev) => ({
@@ -409,9 +427,15 @@ export default function NewPartPage() {
           })),
         }))
       )
-      .catch(() =>
-        setBoxOccupancyByLocation((prev) => ({ ...prev, [location]: [] }))
-      );
+      .catch(() => {
+        setBoxOccupancyByLocation((prev) => ({
+          ...prev,
+          [location]: OCCUPANCY_UNKNOWN,
+        }));
+        toast.error(
+          `Could not read contents of box ${location}. Bin allocation is paused until it's retried.`
+        );
+      });
   }, []);
 
   useEffect(() => {
@@ -428,32 +452,37 @@ export default function NewPartPage() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // The next bin free in the box, accounting for both stored parts and parts
-  // already sitting in the queue.
+  // True only once the selected box's stored occupancy has actually been
+  // fetched. Absent-from-cache and OCCUPANCY_UNKNOWN both mean "not yet" —
+  // never treat either as "box is empty". This is the single gate that must
+  // hold before ANY auto-allocation (queueing, pasting, or keyboard Enter)
+  // is allowed to run.
+  function isOccupancyKnown(location: string): boolean {
+    return (
+      location in boxOccupancyByLocation &&
+      boxOccupancyByLocation[location] !== OCCUPANCY_UNKNOWN
+    );
+  }
+
+  // The next bin(s) free in the box, accounting for both stored parts and
+  // parts already sitting in the queue. Returns null if occupancy for the
+  // box isn't known yet — callers must not fall back to guessing bin 1.
   function allocateBins(
     location: string,
     count: number,
     queued: QueuedPart[]
-  ): number[] {
-    const occupied = [
-      ...(boxOccupancyByLocation[location] ?? []),
-      ...queued
-        .filter((p) => p.location === location && p.bin_number > 0)
-        .map((p) => ({ location: p.location, bin_number: p.bin_number })),
-    ];
-    const bins: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const bin = nextFreeBin(occupied, location);
-      bins.push(bin);
-      occupied.push({ location, bin_number: bin });
-    }
-    return bins;
+  ): number[] | null {
+    const storedOccupancy = boxOccupancyByLocation[location] ?? OCCUPANCY_UNKNOWN;
+    return allocateBinsPure(location, count, storedOccupancy, queued);
   }
 
   const currentCode = nextCode + queue.length;
-  const previewBin = form.location
-    ? allocateBins(form.location.trim(), 1, queue)[0]
-    : 0;
+  const trimmedLocation = form.location.trim();
+  const locationReady = !!trimmedLocation && isOccupancyKnown(trimmedLocation);
+  const previewBins = locationReady
+    ? allocateBins(trimmedLocation, 1, queue)
+    : null;
+  const previewBin = previewBins ? previewBins[0] : 0;
 
   const filteredPackages = form.package
     ? packages.filter((p) =>
@@ -463,14 +492,24 @@ export default function NewPartPage() {
 
   function addToQueue() {
     if (!form.item_name.trim()) return;
+    if (!locationReady) {
+      toast.error("Still reading this box's contents — try again in a moment.");
+      return;
+    }
+
+    const bins = allocateBins(trimmedLocation, 1, queue);
+    if (!bins) {
+      toast.error("Still reading this box's contents — try again in a moment.");
+      return;
+    }
 
     const part: QueuedPart = {
       id: crypto.randomUUID(),
       item_code: currentCode,
       item_name: form.item_name.trim(),
       package: form.package.trim(),
-      location: form.location.trim(),
-      bin_number: allocateBins(form.location.trim(), 1, queue)[0],
+      location: trimmedLocation,
+      bin_number: bins[0],
       details: form.details.trim(),
       qty: form.qty,
     };
@@ -492,8 +531,13 @@ export default function NewPartPage() {
 
   function handlePasteImport() {
     if (!pasteText.trim()) return;
-    const startCode = nextCode + queue.length;
     const location = form.location.trim();
+    if (!isOccupancyKnown(location)) {
+      toast.error("Still reading this box's contents — try again in a moment.");
+      return;
+    }
+
+    const startCode = nextCode + queue.length;
     const parsed = parsePastedText(pasteText, startCode, location);
 
     if (parsed.length === 0) {
@@ -502,6 +546,10 @@ export default function NewPartPage() {
     }
 
     const bins = allocateBins(location, parsed.length, queue);
+    if (!bins) {
+      toast.error("Still reading this box's contents — try again in a moment.");
+      return;
+    }
     const withBins = parsed.map((p, i) => ({ ...p, bin_number: bins[i] }));
 
     setQueue((prev) => [...prev, ...withBins]);
@@ -523,9 +571,11 @@ export default function NewPartPage() {
   useEffect(() => {
     if (!editingPart || editingPart.bin_number !== 0 || !editingPart.location)
       return;
-    if (!(editingPart.location in boxOccupancyByLocation)) return;
+    if (!isOccupancyKnown(editingPart.location)) return;
     const others = queue.filter((p) => p.id !== editingPart.id);
-    const bin = allocateBins(editingPart.location, 1, others)[0];
+    const bins = allocateBins(editingPart.location, 1, others);
+    if (!bins) return;
+    const bin = bins[0];
     setEditingPart((prev) =>
       prev && prev.bin_number === 0 ? { ...prev, bin_number: bin } : prev
     );
@@ -612,10 +662,25 @@ export default function NewPartPage() {
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Address
             </Label>
-            <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-              {form.location && previewBin
-                ? formatAddress(form.location, previewBin)
-                : "pick a box"}
+            <div className="h-9 px-3 flex items-center justify-between gap-2 rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
+              <span>
+                {!form.location
+                  ? "pick a box"
+                  : !locationReady
+                  ? "reading box…"
+                  : previewBin
+                  ? formatAddress(form.location, previewBin)
+                  : "pick a box"}
+              </span>
+              {form.location && !locationReady && (
+                <button
+                  type="button"
+                  onClick={() => loadBoxOccupancy(form.location)}
+                  className="shrink-0 text-primary hover:underline font-sans text-xs"
+                >
+                  Retry
+                </button>
+              )}
             </div>
           </div>
           <div className="space-y-2">
@@ -744,10 +809,10 @@ export default function NewPartPage() {
           type="button"
           variant="outline"
           onClick={addToQueue}
-          disabled={!form.item_name.trim()}
+          disabled={!form.item_name.trim() || !locationReady}
           className="w-full border-primary/30 text-primary hover:bg-primary/10"
         >
-          + Add to queue
+          {locationReady ? "+ Add to queue" : "Reading box…"}
         </Button>
       </div>
 
@@ -858,9 +923,9 @@ export default function NewPartPage() {
             </Button>
             <Button
               onClick={handlePasteImport}
-              disabled={!pasteText.trim()}
+              disabled={!pasteText.trim() || !locationReady}
             >
-              Add to queue
+              {locationReady ? "Add to queue" : "Reading box…"}
             </Button>
           </div>
         </DialogContent>
