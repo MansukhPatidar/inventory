@@ -28,6 +28,11 @@ describe("isOutOfRange", () => {
   it("is true when the bin exceeds the box capacity", () => {
     expect(isOutOfRange(31, 30)).toBe(true);
   });
+
+  it("is true below bin 1 — callers use this to guard slot-array indexing", () => {
+    expect(isOutOfRange(0, 30)).toBe(true);
+    expect(isOutOfRange(-1, 30)).toBe(true);
+  });
 });
 
 describe("binOccupants", () => {

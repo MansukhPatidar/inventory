@@ -13,9 +13,13 @@ export function formatAddress(location: string, binNumber: number): string {
   return `${location}-${binNumber}`;
 }
 
-/** A bin past the box's physical compartment count. Legal, but flagged. */
+/**
+ * A bin the box cannot name — past its compartment count, or below 1. Legal to
+ * store (the grid flags it rather than blocking it), but callers rely on this
+ * to mean "do not index a slot array with it".
+ */
 export function isOutOfRange(binNumber: number, binCount: number): boolean {
-  return binNumber > binCount;
+  return binNumber > binCount || binNumber < 1;
 }
 
 /** Every part sharing a given bin. Bins are shareable by design. */
