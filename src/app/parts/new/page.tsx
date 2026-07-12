@@ -438,9 +438,17 @@ export default function NewPartPage() {
       });
   }, []);
 
+  // The box <select> can only emit exact `boxes.id` values, so this trim is
+  // vestigial in practice — but it is the ONE place the cache key is derived.
+  // loadBoxOccupancy, isOccupancyKnown, and allocateBins all key off this
+  // same trimmedLocation; a second independent `.trim()` elsewhere (as
+  // handlePasteImport used to do) is how a write key and a read key drift
+  // apart and the box gets stuck at "reading box…" forever.
+  const trimmedLocation = form.location.trim();
+
   useEffect(() => {
-    if (form.location) loadBoxOccupancy(form.location);
-  }, [form.location, loadBoxOccupancy]);
+    if (trimmedLocation) loadBoxOccupancy(trimmedLocation);
+  }, [trimmedLocation, loadBoxOccupancy]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -477,7 +485,6 @@ export default function NewPartPage() {
   }
 
   const currentCode = nextCode + queue.length;
-  const trimmedLocation = form.location.trim();
   const locationReady = !!trimmedLocation && isOccupancyKnown(trimmedLocation);
   const previewBins = locationReady
     ? allocateBins(trimmedLocation, 1, queue)
@@ -531,21 +538,20 @@ export default function NewPartPage() {
 
   function handlePasteImport() {
     if (!pasteText.trim()) return;
-    const location = form.location.trim();
-    if (!isOccupancyKnown(location)) {
+    if (!isOccupancyKnown(trimmedLocation)) {
       toast.error("Still reading this box's contents — try again in a moment.");
       return;
     }
 
     const startCode = nextCode + queue.length;
-    const parsed = parsePastedText(pasteText, startCode, location);
+    const parsed = parsePastedText(pasteText, startCode, trimmedLocation);
 
     if (parsed.length === 0) {
       toast.error("Could not parse any parts from the pasted text");
       return;
     }
 
-    const bins = allocateBins(location, parsed.length, queue);
+    const bins = allocateBins(trimmedLocation, parsed.length, queue);
     if (!bins) {
       toast.error("Still reading this box's contents — try again in a moment.");
       return;
@@ -675,7 +681,7 @@ export default function NewPartPage() {
               {form.location && !locationReady && (
                 <button
                   type="button"
-                  onClick={() => loadBoxOccupancy(form.location)}
+                  onClick={() => loadBoxOccupancy(trimmedLocation)}
                   className="shrink-0 text-primary hover:underline font-sans text-xs"
                 >
                   Retry

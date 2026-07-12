@@ -116,7 +116,23 @@ export default function StoragePage() {
       setDeleteTarget(null);
       fetchData();
     } catch (e) {
-      toast.error((e as Error).message);
+      // The client-side "does this box have parts" guard above runs against
+      // possibly-stale state (e.g. another tab moved a part into this box
+      // after our last fetch). If it passes on stale data, Postgres itself
+      // still rejects the delete via the FK from parts.location -> boxes.id
+      // (error code 23503) — that's the real backstop, this guard is just
+      // the friendly front door. Translate that specific failure back into
+      // the same friendly message instead of leaking the raw Postgres
+      // error, and refresh so the UI stops showing the stale (zero) count.
+      if ((e as { code?: string }).code === "23503") {
+        toast.error(
+          `${deleteTarget.id} still holds parts — move them to another box first.`
+        );
+        setDeleteTarget(null);
+        fetchData();
+      } else {
+        toast.error((e as Error).message);
+      }
     } finally {
       setDeleting(false);
     }

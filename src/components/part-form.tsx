@@ -15,7 +15,13 @@ import {
   getPartsInBox,
   getBoxes,
 } from "@/lib/actions";
-import { nextFreeBin, isOutOfRange, formatAddress } from "@/lib/bins";
+import {
+  isOutOfRange,
+  formatAddress,
+  allocateBins,
+  OCCUPANCY_UNKNOWN,
+  type BoxOccupancy,
+} from "@/lib/bins";
 import type { Box, Part } from "@/lib/types";
 
 const LAST_LOCATION_KEY = "inventory-last-location";
@@ -29,9 +35,16 @@ export function PartForm({ part }: { part?: Part }) {
   const pkgRef = useRef<HTMLDivElement>(null);
 
   const [boxes, setBoxes] = useState<Box[]>([]);
+  // OCCUPANCY_UNKNOWN means "haven't read this box yet, or the read failed" —
+  // distinct from an empty array ("read it, it's empty"). Conflating the two
+  // (e.g. via a bare `.catch(() => setBoxParts([]))`) is what lets a failed
+  // fetch masquerade as an empty box: binMates would come up empty, the
+  // amber "sharing this bin" warning would never fire, and the user would
+  // get a false all-clear to stack a part onto an occupied bin.
   const [boxParts, setBoxParts] = useState<
-    { id: number; item_name: string; item_code: number; bin_number: number }[]
-  >([]);
+    | typeof OCCUPANCY_UNKNOWN
+    | { id: number; item_name: string; item_code: number; bin_number: number }[]
+  >(OCCUPANCY_UNKNOWN);
 
   const [formData, setFormData] = useState({
     item_code: part?.item_code ?? 0,
@@ -59,31 +72,43 @@ export function PartForm({ part }: { part?: Part }) {
   }, [isNew]);
 
   // Load the box's occupants whenever the box changes, so the bin field can say
-  // who is already in the bin you typed.
+  // who is already in the bin you typed. While the fetch is in flight — and if
+  // it fails — occupancy stays OCCUPANCY_UNKNOWN, never `[]`. A bare `[]` there
+  // would make a failed fetch indistinguishable from "box is genuinely empty",
+  // which both suppresses the binMates warning and lets auto-allocation hand
+  // out bin 1 on top of an existing occupant.
   useEffect(() => {
     if (!formData.location) {
-      setBoxParts([]);
+      setBoxParts(OCCUPANCY_UNKNOWN);
       return;
     }
-    getPartsInBox(formData.location)
+    setBoxParts(OCCUPANCY_UNKNOWN);
+    const location = formData.location;
+    getPartsInBox(location)
       .then((parts) => {
         setBoxParts(parts);
         // A new part in a freshly-chosen box defaults to the first free bin.
+        // Routed through allocateBins so it inherits the unknown-occupancy
+        // refusal — hand-rolling nextFreeBin here would reopen the exact bin-
+        // collision bug that allocateBins exists to close.
         setFormData((prev) => {
-          if (!isNew || prev.bin_number !== 0) return prev;
-          return {
-            ...prev,
-            bin_number: nextFreeBin(
-              parts.map((p) => ({
-                location: formData.location,
-                bin_number: p.bin_number,
-              })),
-              formData.location
-            ),
-          };
+          if (!isNew || prev.bin_number !== 0 || prev.location !== location)
+            return prev;
+          const occupancy: BoxOccupancy = parts.map((p) => ({
+            location,
+            bin_number: p.bin_number,
+          }));
+          const bins = allocateBins(location, 1, occupancy, []);
+          if (!bins) return prev;
+          return { ...prev, bin_number: bins[0] };
         });
       })
-      .catch(() => setBoxParts([]));
+      .catch(() => {
+        setBoxParts(OCCUPANCY_UNKNOWN);
+        toast.error(
+          `Could not read contents of box ${location}. Bin info may be incomplete.`
+        );
+      });
   }, [formData.location, isNew]);
 
   // Close package dropdown on outside click
@@ -103,9 +128,15 @@ export function PartForm({ part }: { part?: Part }) {
     formData.bin_number > 0 &&
     isOutOfRange(formData.bin_number, selectedBox.bin_count);
 
-  const binMates = boxParts.filter(
-    (p) => p.bin_number === formData.bin_number && p.id !== part?.id
-  );
+  const boxPartsKnown = boxParts !== OCCUPANCY_UNKNOWN;
+  // While occupancy is unknown, binMates MUST stay empty rather than fall
+  // back to `[]` from a stale/failed fetch — but that emptiness must not be
+  // read as "this bin is free" (see the boxPartsKnown-gated warning below).
+  const binMates = boxPartsKnown
+    ? boxParts.filter(
+        (p) => p.bin_number === formData.bin_number && p.id !== part?.id
+      )
+    : [];
 
   const filteredPackages = formData.package
     ? packages.filter((p) =>
@@ -283,6 +314,12 @@ export function PartForm({ part }: { part?: Part }) {
           <p className="text-xs text-red-400">
             Outside box capacity ({selectedBox.bin_count} bins). Saved anyway —
             fix the box size or move the part.
+          </p>
+        )}
+        {formData.location && !boxPartsKnown && (
+          <p className="text-xs text-amber-400">
+            Could not read this box&apos;s contents — cannot confirm whether
+            this bin is free.
           </p>
         )}
         {binMates.length > 0 && (
