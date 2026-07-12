@@ -13,9 +13,10 @@ import {
   getNextItemCode,
   getPackages,
   getPartsInBox,
-  sharebin,
+  getBoxes,
 } from "@/lib/actions";
-import type { Part } from "@/lib/types";
+import { nextFreeBin, isOutOfRange, formatAddress } from "@/lib/bins";
+import type { Box, Part } from "@/lib/types";
 
 const LAST_LOCATION_KEY = "inventory-last-location";
 
@@ -27,10 +28,9 @@ export function PartForm({ part }: { part?: Part }) {
   const [showPkgDropdown, setShowPkgDropdown] = useState(false);
   const pkgRef = useRef<HTMLDivElement>(null);
 
-  const [sharedBin, setSharedBin] = useState(part?.bin_number != null);
-  const [shareTargetId, setShareTargetId] = useState<number | null>(null);
+  const [boxes, setBoxes] = useState<Box[]>([]);
   const [boxParts, setBoxParts] = useState<
-    { id: number; item_name: string; item_code: number; bin_number: number | null }[]
+    { id: number; item_name: string; item_code: number; bin_number: number }[]
   >([]);
 
   const [formData, setFormData] = useState({
@@ -38,12 +38,14 @@ export function PartForm({ part }: { part?: Part }) {
     item_name: part?.item_name ?? "",
     package: part?.package ?? "",
     location: part?.location ?? "",
+    bin_number: part?.bin_number ?? 0,
     details: part?.details ?? "",
     qty: part?.qty ?? 0,
   });
 
   useEffect(() => {
     getPackages().then(setPackages);
+    getBoxes().then(setBoxes);
 
     if (isNew) {
       getNextItemCode().then((code) =>
@@ -56,14 +58,33 @@ export function PartForm({ part }: { part?: Part }) {
     }
   }, [isNew]);
 
-  // Fetch parts in box when location changes
+  // Load the box's occupants whenever the box changes, so the bin field can say
+  // who is already in the bin you typed.
   useEffect(() => {
-    if (formData.location) {
-      getPartsInBox(formData.location).then(setBoxParts).catch(() => {});
-    } else {
+    if (!formData.location) {
       setBoxParts([]);
+      return;
     }
-  }, [formData.location]);
+    getPartsInBox(formData.location)
+      .then((parts) => {
+        setBoxParts(parts);
+        // A new part in a freshly-chosen box defaults to the first free bin.
+        setFormData((prev) => {
+          if (!isNew || prev.bin_number !== 0) return prev;
+          return {
+            ...prev,
+            bin_number: nextFreeBin(
+              parts.map((p) => ({
+                location: formData.location,
+                bin_number: p.bin_number,
+              })),
+              formData.location
+            ),
+          };
+        });
+      })
+      .catch(() => setBoxParts([]));
+  }, [formData.location, isNew]);
 
   // Close package dropdown on outside click
   useEffect(() => {
@@ -76,12 +97,15 @@ export function PartForm({ part }: { part?: Part }) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const barcode =
-    formData.location && formData.item_code
-      ? `${formData.location}-${formData.item_code}`
-      : formData.item_code
-      ? `${formData.item_code}`
-      : "";
+  const selectedBox = boxes.find((b) => b.id === formData.location);
+  const overCapacity =
+    !!selectedBox &&
+    formData.bin_number > 0 &&
+    isOutOfRange(formData.bin_number, selectedBox.bin_count);
+
+  const binMates = boxParts.filter(
+    (p) => p.bin_number === formData.bin_number && p.id !== part?.id
+  );
 
   const filteredPackages = formData.package
     ? packages.filter((p) =>
@@ -91,42 +115,36 @@ export function PartForm({ part }: { part?: Part }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (!formData.location) {
+      toast.error("Pick a box");
+      return;
+    }
+    if (formData.bin_number < 1) {
+      toast.error("Bin number must be 1 or higher");
+      return;
+    }
+
     setLoading(true);
     try {
-      if (formData.location) {
-        localStorage.setItem(LAST_LOCATION_KEY, formData.location);
-      }
+      localStorage.setItem(LAST_LOCATION_KEY, formData.location);
+
+      const payload = {
+        item_code: formData.item_code,
+        item_name: formData.item_name,
+        package: formData.package || null,
+        location: formData.location,
+        bin_number: formData.bin_number,
+        details: formData.details || null,
+        qty: formData.qty,
+      };
 
       if (part) {
-        await updatePart(part.id, {
-          barcode: barcode || undefined,
-          item_code: formData.item_code,
-          item_name: formData.item_name,
-          package: formData.package || undefined,
-          location: formData.location || undefined,
-          details: formData.details || undefined,
-          qty: formData.qty,
-          bin_number: sharedBin ? part.bin_number : null,
-        });
-        if (sharedBin && shareTargetId) {
-          await sharebin(part.id, shareTargetId);
-        }
+        await updatePart(part.id, payload);
         toast.success(`Updated "${formData.item_name}"`);
         router.push(`/parts?id=${part.id}`);
       } else {
-        const created = await createPart({
-          barcode: barcode || null,
-          item_code: formData.item_code,
-          item_name: formData.item_name,
-          package: formData.package || null,
-          location: formData.location || null,
-          details: formData.details || null,
-          qty: formData.qty,
-          bin_number: null,
-        });
-        if (sharedBin && shareTargetId) {
-          await sharebin(created.id, shareTargetId);
-        }
+        const created = await createPart(payload);
         toast.success(`Created "${formData.item_name}"`);
         router.push(`/parts?id=${created.id}`);
       }
@@ -142,10 +160,12 @@ export function PartForm({ part }: { part?: Part }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Barcode
+            Address
           </Label>
           <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-            {barcode || "auto-generated"}
+            {formData.location && formData.bin_number > 0
+              ? formatAddress(formData.location, formData.bin_number)
+              : "pick a box and bin"}
           </div>
         </div>
         <div className="space-y-2">
@@ -218,67 +238,59 @@ export function PartForm({ part }: { part?: Part }) {
 
         <div className="space-y-2">
           <Label htmlFor="location" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Location
+            Box
           </Label>
-          <Input
+          <select
             id="location"
             value={formData.location}
             onChange={(e) =>
-              setFormData({ ...formData, location: e.target.value })
+              setFormData({ ...formData, location: e.target.value, bin_number: 0 })
             }
-            placeholder="B1, B3, RED..."
-            className="font-mono bg-secondary border-border/50"
-          />
+            required
+            className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 font-mono text-sm focus:outline-none focus:border-primary"
+          >
+            <option value="">Select a box...</option>
+            {boxes.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.id} ({b.bin_count} bins)
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Shared bin */}
-      {formData.location && (
-        <div className="space-y-3 rounded-lg border border-border/30 bg-secondary/30 p-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={sharedBin}
-              onChange={(e) => {
-                setSharedBin(e.target.checked);
-                if (!e.target.checked) setShareTargetId(null);
-              }}
-              className="rounded border-border accent-primary"
-            />
-            <span className="text-sm font-medium">Share a bin with another part</span>
-          </label>
-
-          {sharedBin && (
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Share bin with
-              </Label>
-              {boxParts.filter((p) => p.id !== part?.id).length > 0 ? (
-                <select
-                  value={shareTargetId ?? ""}
-                  onChange={(e) => {
-                    setShareTargetId(e.target.value ? parseInt(e.target.value) : null);
-                  }}
-                  className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 text-sm focus:outline-none focus:border-primary"
-                >
-                  <option value="">Select a part to share bin with...</option>
-                  {boxParts
-                    .filter((p) => p.id !== part?.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.item_name} (#{p.item_code})
-                      </option>
-                    ))}
-                </select>
-              ) : (
-                <p className="text-xs text-muted-foreground/60">
-                  No other parts in this box yet
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Bin */}
+      <div className="space-y-2">
+        <Label htmlFor="bin_number" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Bin
+        </Label>
+        <Input
+          id="bin_number"
+          type="number"
+          min={1}
+          value={formData.bin_number || ""}
+          onChange={(e) =>
+            setFormData({
+              ...formData,
+              bin_number: parseInt(e.target.value) || 0,
+            })
+          }
+          disabled={!formData.location}
+          required
+          className="font-mono bg-secondary border-border/50"
+        />
+        {overCapacity && selectedBox && (
+          <p className="text-xs text-red-400">
+            Outside box capacity ({selectedBox.bin_count} bins). Saved anyway —
+            fix the box size or move the part.
+          </p>
+        )}
+        {binMates.length > 0 && (
+          <p className="text-xs text-amber-400">
+            Sharing this bin with: {binMates.map((p) => p.item_name).join(", ")}
+          </p>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
