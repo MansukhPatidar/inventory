@@ -366,9 +366,12 @@ export default function NewPartPage() {
   const pkgRef = useRef<HTMLDivElement>(null);
 
   const [boxes, setBoxes] = useState<Box[]>([]);
-  const [boxOccupancy, setBoxOccupancy] = useState<
-    { location: string; bin_number: number }[]
-  >([]);
+  // Occupancy cache keyed by box id, so allocation can be done against any
+  // box (the form's box, or a different box picked in the edit dialog) —
+  // not just whichever box the form currently points at.
+  const [boxOccupancyByLocation, setBoxOccupancyByLocation] = useState<
+    Record<string, { location: string; bin_number: number }[]>
+  >({});
 
   const [form, setForm] = useState({
     item_name: "",
@@ -393,22 +396,27 @@ export default function NewPartPage() {
     }
   }, [loadNextCode]);
 
-  useEffect(() => {
-    if (!form.location) {
-      setBoxOccupancy([]);
-      return;
-    }
-    getPartsInBox(form.location)
+  // Fetch and cache a box's occupancy.
+  const loadBoxOccupancy = useCallback((location: string) => {
+    if (!location) return;
+    getPartsInBox(location)
       .then((parts) =>
-        setBoxOccupancy(
-          parts.map((p) => ({
-            location: form.location,
+        setBoxOccupancyByLocation((prev) => ({
+          ...prev,
+          [location]: parts.map((p) => ({
+            location,
             bin_number: p.bin_number,
-          }))
-        )
+          })),
+        }))
       )
-      .catch(() => setBoxOccupancy([]));
-  }, [form.location]);
+      .catch(() =>
+        setBoxOccupancyByLocation((prev) => ({ ...prev, [location]: [] }))
+      );
+  }, []);
+
+  useEffect(() => {
+    if (form.location) loadBoxOccupancy(form.location);
+  }, [form.location, loadBoxOccupancy]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -428,7 +436,7 @@ export default function NewPartPage() {
     queued: QueuedPart[]
   ): number[] {
     const occupied = [
-      ...boxOccupancy.filter((p) => p.location === location),
+      ...(boxOccupancyByLocation[location] ?? []),
       ...queued
         .filter((p) => p.location === location && p.bin_number > 0)
         .map((p) => ({ location: p.location, bin_number: p.bin_number })),
@@ -505,6 +513,24 @@ export default function NewPartPage() {
   function removeFromQueue(id: string) {
     setQueue((prev) => prev.filter((p) => p.id !== id));
   }
+
+  // When the edit dialog's box changes, bin_number is reset to 0 (see the
+  // select's onChange below). Once that box's occupancy is known, fill in
+  // the first free bin there — never carry over a bin from the old box,
+  // which could already be occupied in the new one. The part being edited
+  // is excluded from the queue occupants passed to allocateBins so it isn't
+  // treated as its own competitor for a bin.
+  useEffect(() => {
+    if (!editingPart || editingPart.bin_number !== 0 || !editingPart.location)
+      return;
+    if (!(editingPart.location in boxOccupancyByLocation)) return;
+    const others = queue.filter((p) => p.id !== editingPart.id);
+    const bin = allocateBins(editingPart.location, 1, others)[0];
+    setEditingPart((prev) =>
+      prev && prev.bin_number === 0 ? { ...prev, bin_number: bin } : prev
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingPart, boxOccupancyByLocation, queue]);
 
   function updateInQueue(updated: QueuedPart) {
     setQueue((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
@@ -852,7 +878,9 @@ export default function NewPartPage() {
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Address</Label>
                   <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-                    {formatAddress(editingPart.location, editingPart.bin_number)}
+                    {editingPart.location && editingPart.bin_number > 0
+                      ? formatAddress(editingPart.location, editingPart.bin_number)
+                      : "allocating..."}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -884,9 +912,11 @@ export default function NewPartPage() {
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Box</Label>
                   <select
                     value={editingPart.location}
-                    onChange={(e) =>
-                      setEditingPart({ ...editingPart, location: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const location = e.target.value;
+                      loadBoxOccupancy(location);
+                      setEditingPart({ ...editingPart, location, bin_number: 0 });
+                    }}
                     required
                     className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 font-mono text-sm focus:outline-none focus:border-primary"
                   >
@@ -951,7 +981,10 @@ export default function NewPartPage() {
                 <Button variant="ghost" onClick={() => setEditingPart(null)}>
                   Cancel
                 </Button>
-                <Button onClick={() => updateInQueue(editingPart)}>
+                <Button
+                  onClick={() => updateInQueue(editingPart)}
+                  disabled={!editingPart.location || editingPart.bin_number < 1}
+                >
                   Update
                 </Button>
               </div>
