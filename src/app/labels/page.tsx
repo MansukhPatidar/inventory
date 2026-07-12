@@ -11,14 +11,19 @@ export default function LabelsPage() {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [labelType, setLabelType] = useState<"boxes" | "bins">("boxes");
   const [selectedBoxes, setSelectedBoxes] = useState<Set<string>>(new Set());
-  const [binBoxId, setBinBoxId] = useState<string | null>(null);
+
+  // Bin-sticker print queue: boxes whose bins go on the next sheet. Session-only
+  // — a queue that outlives the tab would silently reprint stickers you already
+  // stuck on a box.
+  const [binQueue, setBinQueue] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     getBoxes().then(setBoxes);
   }, []);
 
   const selectedBoxList = boxes.filter((b) => selectedBoxes.has(b.id));
-  const binBox = boxes.find((b) => b.id === binBoxId) ?? null;
+  const queuedBoxes = boxes.filter((b) => binQueue.has(b.id));
+  const queuedLabelCount = queuedBoxes.reduce((n, b) => n + b.bin_count, 0);
 
   function toggleAllBoxes(checked: boolean) {
     setSelectedBoxes(checked ? new Set(boxes.map((b) => b.id)) : new Set());
@@ -29,6 +34,13 @@ export default function LabelsPage() {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setSelectedBoxes(next);
+  }
+
+  function toggleBinQueue(id: string) {
+    const next = new Set(binQueue);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setBinQueue(next);
   }
 
   return (
@@ -122,33 +134,71 @@ export default function LabelsPage() {
 
         {labelType === "bins" && (
           <>
-            <div className="flex gap-2 flex-wrap">
-              {boxes.map((box) => (
-                <FilterChip
-                  key={box.id}
-                  active={binBoxId === box.id}
-                  onClick={() => setBinBoxId(box.id)}
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-muted-foreground">
+                Queue boxes, then print every sticker on one sheet.
+              </span>
+              {binQueue.size > 0 && (
+                <button
+                  onClick={() => setBinQueue(new Set())}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors ml-auto"
                 >
-                  {box.id}
-                </FilterChip>
-              ))}
+                  Clear queue
+                </button>
+              )}
             </div>
 
-            {binBox && (
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+              <div className="overflow-auto max-h-64">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {boxes.map((box) => (
+                      <tr
+                        key={box.id}
+                        className="border-t border-border/30 hover:bg-accent/50 cursor-pointer"
+                        onClick={() => toggleBinQueue(box.id)}
+                      >
+                        <td className="p-3 w-8">
+                          <input
+                            type="checkbox"
+                            checked={binQueue.has(box.id)}
+                            onChange={() => toggleBinQueue(box.id)}
+                            className="accent-primary"
+                          />
+                        </td>
+                        <td className="p-3 font-semibold">{box.id}</td>
+                        <td className="p-3 text-muted-foreground text-xs font-mono">
+                          {box.id}:1 – {box.id}:{box.bin_count}
+                        </td>
+                        <td className="p-3 text-muted-foreground text-xs text-right">
+                          {box.bin_count} stickers
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {queuedLabelCount > 0 && (
               <p className="text-sm text-muted-foreground">
-                {binBox.bin_count} bin stickers, laid out {binBox.rows}×
-                {binBox.cols} to match the box.
+                <span className="text-primary font-medium">
+                  {queuedLabelCount} stickers
+                </span>{" "}
+                queued from {queuedBoxes.length} box
+                {queuedBoxes.length > 1 ? "es" : ""} ·{" "}
+                {queuedBoxes.map((b) => b.id).join(", ")} · 20×10mm each
               </p>
             )}
 
             <Button
               onClick={() => window.print()}
-              disabled={!binBox}
+              disabled={queuedLabelCount === 0}
               size="lg"
             >
-              {binBox
-                ? `Print ${binBox.bin_count} bin numbers for ${binBox.id}`
-                : "Pick a box"}
+              {queuedLabelCount > 0
+                ? `Print ${queuedLabelCount} bin stickers`
+                : "Queue a box"}
             </Button>
           </>
         )}
@@ -157,7 +207,9 @@ export default function LabelsPage() {
       {labelType === "boxes" && selectedBoxList.length > 0 && (
         <BoxLabelGrid boxes={selectedBoxList} />
       )}
-      {labelType === "bins" && binBox && <BinLabelGrid box={binBox} />}
+      {labelType === "bins" && queuedBoxes.length > 0 && (
+        <BinLabelGrid boxes={queuedBoxes} />
+      )}
     </div>
   );
 }
