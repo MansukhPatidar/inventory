@@ -3,6 +3,11 @@
 -- bin past a box's bin_count is allowed (flagged in the UI, corrected by hand)
 -- because real data already contains such rows.
 
+-- Atomic: the backfill and the constraints that depend on it must land together
+-- or not at all. A half-applied migration leaves parts with no bin and a NOT NULL
+-- column that rejects every write.
+BEGIN;
+
 -- 1. REEL is a location with no boxes row. Its parts are stored loose on reels,
 --    which the model treats as an ordinary box named REELS.
 UPDATE parts SET location = 'REELS' WHERE location = 'REEL';
@@ -89,3 +94,5 @@ ALTER TABLE parts ADD CONSTRAINT parts_bin_number_positive
 DROP INDEX IF EXISTS idx_parts_barcode_unique;
 DROP INDEX IF EXISTS idx_parts_barcode;
 ALTER TABLE parts DROP COLUMN barcode;
+
+COMMIT;
