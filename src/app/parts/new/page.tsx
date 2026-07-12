@@ -18,7 +18,11 @@ import {
   createPart,
   getNextItemCode,
   getPackages,
+  getPartsInBox,
+  getBoxes,
 } from "@/lib/actions";
+import { nextFreeBin, isOutOfRange, formatAddress } from "@/lib/bins";
+import type { Box } from "@/lib/types";
 
 const LAST_LOCATION_KEY = "inventory-last-location";
 
@@ -28,9 +32,9 @@ interface QueuedPart {
   item_name: string;
   package: string;
   location: string;
+  bin_number: number;
   details: string;
   qty: number;
-  barcode: string;
   lowConfidence?: boolean;
 }
 
@@ -161,17 +165,15 @@ function parseInlineQtyFormat(
     const pkgMatch = name.match(PKG_RE);
     if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
 
-    const barcode = location ? `${location}-${code}` : "";
-
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
       item_name: name,
       package: pkg,
       location,
+      bin_number: 0,
       details: name,
       qty,
-      barcode,
     });
     code++;
   }
@@ -231,17 +233,15 @@ function parseTabularFormat(
       if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
     }
 
-    const barcode = location ? `${location}-${code}` : "";
-
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
       item_name: name,
       package: pkg,
       location,
+      bin_number: 0,
       details,
       qty,
-      barcode,
     });
     code++;
   }
@@ -332,17 +332,15 @@ function parseOrderTableFormat(
 
     const lowConfidence = qty === 0 || item_name.length < 5;
 
-    const barcode = location ? `${location}-${code}` : "";
-
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
       item_name,
       package: pkg,
       location,
+      bin_number: 0,
       details: item_name,
       qty,
-      barcode,
       lowConfidence: lowConfidence || undefined,
     });
     code++;
@@ -367,6 +365,11 @@ export default function NewPartPage() {
   const [editingPart, setEditingPart] = useState<QueuedPart | null>(null);
   const pkgRef = useRef<HTMLDivElement>(null);
 
+  const [boxes, setBoxes] = useState<Box[]>([]);
+  const [boxOccupancy, setBoxOccupancy] = useState<
+    { location: string; bin_number: number }[]
+  >([]);
+
   const [form, setForm] = useState({
     item_name: "",
     package: "",
@@ -383,11 +386,29 @@ export default function NewPartPage() {
   useEffect(() => {
     loadNextCode();
     getPackages().then(setPackages);
+    getBoxes().then(setBoxes);
     const lastLoc = localStorage.getItem(LAST_LOCATION_KEY);
     if (lastLoc) {
       setForm((prev) => ({ ...prev, location: lastLoc }));
     }
   }, [loadNextCode]);
+
+  useEffect(() => {
+    if (!form.location) {
+      setBoxOccupancy([]);
+      return;
+    }
+    getPartsInBox(form.location)
+      .then((parts) =>
+        setBoxOccupancy(
+          parts.map((p) => ({
+            location: form.location,
+            bin_number: p.bin_number,
+          }))
+        )
+      )
+      .catch(() => setBoxOccupancy([]));
+  }, [form.location]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -399,11 +420,32 @@ export default function NewPartPage() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // The next bin free in the box, accounting for both stored parts and parts
+  // already sitting in the queue.
+  function allocateBins(
+    location: string,
+    count: number,
+    queued: QueuedPart[]
+  ): number[] {
+    const occupied = [
+      ...boxOccupancy.filter((p) => p.location === location),
+      ...queued
+        .filter((p) => p.location === location && p.bin_number > 0)
+        .map((p) => ({ location: p.location, bin_number: p.bin_number })),
+    ];
+    const bins: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const bin = nextFreeBin(occupied, location);
+      bins.push(bin);
+      occupied.push({ location, bin_number: bin });
+    }
+    return bins;
+  }
+
   const currentCode = nextCode + queue.length;
-  const barcode =
-    form.location && currentCode
-      ? `${form.location}-${currentCode}`
-      : "";
+  const previewBin = form.location
+    ? allocateBins(form.location.trim(), 1, queue)[0]
+    : 0;
 
   const filteredPackages = form.package
     ? packages.filter((p) =>
@@ -420,9 +462,9 @@ export default function NewPartPage() {
       item_name: form.item_name.trim(),
       package: form.package.trim(),
       location: form.location.trim(),
+      bin_number: allocateBins(form.location.trim(), 1, queue)[0],
       details: form.details.trim(),
       qty: form.qty,
-      barcode,
     };
 
     setQueue((prev) => [...prev, part]);
@@ -451,7 +493,10 @@ export default function NewPartPage() {
       return;
     }
 
-    setQueue((prev) => [...prev, ...parsed]);
+    const bins = allocateBins(location, parsed.length, queue);
+    const withBins = parsed.map((p, i) => ({ ...p, bin_number: bins[i] }));
+
+    setQueue((prev) => [...prev, ...withBins]);
     setPasteText("");
     setShowPaste(false);
     toast.success(`Added ${parsed.length} parts to queue`);
@@ -462,17 +507,21 @@ export default function NewPartPage() {
   }
 
   function updateInQueue(updated: QueuedPart) {
-    // Recalculate barcode from location + item_code
-    updated.barcode =
-      updated.location && updated.item_code
-        ? `${updated.location}-${updated.item_code}`
-        : "";
     setQueue((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     setEditingPart(null);
   }
 
   async function saveAll() {
     if (queue.length === 0) return;
+
+    const unaddressed = queue.filter((p) => !p.location || p.bin_number < 1);
+    if (unaddressed.length > 0) {
+      toast.error(
+        `${unaddressed.length} part(s) have no box or bin. Fix them before saving.`
+      );
+      return;
+    }
+
     setSaving(true);
     setSaveProgress({ done: 0, total: queue.length });
 
@@ -483,14 +532,13 @@ export default function NewPartPage() {
       const p = queue[i];
       try {
         await createPart({
-          barcode: p.barcode || null,
           item_code: p.item_code,
           item_name: p.item_name,
           package: p.package || null,
-          location: p.location || null,
+          location: p.location,
+          bin_number: p.bin_number,
           details: p.details || null,
           qty: p.qty,
-          bin_number: null,
         });
         succeeded++;
       } catch {
@@ -536,10 +584,12 @@ export default function NewPartPage() {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Barcode
+              Address
             </Label>
             <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-              {barcode || "--"}
+              {form.location && previewBin
+                ? formatAddress(form.location, previewBin)
+                : "pick a box"}
             </div>
           </div>
           <div className="space-y-2">
@@ -617,15 +667,21 @@ export default function NewPartPage() {
 
           <div className="space-y-2">
             <Label htmlFor="location" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Location
+              Box
             </Label>
-            <Input
+            <select
               id="location"
               value={form.location}
               onChange={(e) => setForm({ ...form, location: e.target.value })}
-              placeholder="B1, B3, RED..."
-              className="font-mono bg-secondary border-border/50"
-            />
+              className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 font-mono text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="">Select a box...</option>
+              {boxes.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.id} ({b.bin_count} bins)
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -709,10 +765,10 @@ export default function NewPartPage() {
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground font-mono mt-0.5">
-                    {part.barcode || `#${part.item_code}`}
-                    {part.location && (
-                      <span className="text-primary/70 ml-2 font-sans">{part.location}</span>
-                    )}
+                    {formatAddress(part.location, part.bin_number)}
+                    <span className="text-muted-foreground/60 ml-2 font-sans">
+                      #{part.item_code}
+                    </span>
                     {part.qty > 0 && (
                       <span className="ml-2">qty: {part.qty}</span>
                     )}
@@ -794,11 +850,9 @@ export default function NewPartPage() {
             <div className="space-y-4 flex-1 overflow-auto">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Barcode</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Address</Label>
                   <div className="h-9 px-3 flex items-center rounded-lg bg-muted/50 border border-border/30 font-mono text-sm text-muted-foreground">
-                    {editingPart.location && editingPart.item_code
-                      ? `${editingPart.location}-${editingPart.item_code}`
-                      : "--"}
+                    {formatAddress(editingPart.location, editingPart.bin_number)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -827,14 +881,51 @@ export default function NewPartPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Location</Label>
-                  <Input
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Box</Label>
+                  <select
                     value={editingPart.location}
-                    onChange={(e) => setEditingPart({ ...editingPart, location: e.target.value })}
-                    placeholder="B1, B3, RED..."
-                    className="font-mono bg-secondary border-border/50"
-                  />
+                    onChange={(e) =>
+                      setEditingPart({ ...editingPart, location: e.target.value })
+                    }
+                    required
+                    className="w-full h-9 px-3 rounded-lg bg-secondary border border-border/50 font-mono text-sm focus:outline-none focus:border-primary"
+                  >
+                    <option value="">Select a box...</option>
+                    {boxes.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.id} ({b.bin_count} bins)
+                      </option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bin</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={editingPart.bin_number || ""}
+                  onChange={(e) =>
+                    setEditingPart({
+                      ...editingPart,
+                      bin_number: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  className="font-mono bg-secondary border-border/50"
+                />
+                {(() => {
+                  const box = boxes.find((b) => b.id === editingPart.location);
+                  return (
+                    box &&
+                    editingPart.bin_number > 0 &&
+                    isOutOfRange(editingPart.bin_number, box.bin_count) && (
+                      <p className="text-xs text-red-400">
+                        Outside box capacity ({box.bin_count} bins). Saved anyway
+                        — fix the box size or move the part.
+                      </p>
+                    )
+                  );
+                })()}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
