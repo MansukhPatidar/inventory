@@ -65,9 +65,11 @@ export function BoxLabelGrid({ boxes }: { boxes: Box[] }) {
               className="shrink-0"
               style={{ width: "22mm", height: "22mm" }}
             />
+            {/* Read across a room. The longest id (SANDBOX) still fits the
+                ~32mm left over beside the QR, shrinking only if it has to. */}
             <div
-              className="font-bold text-black leading-tight"
-              style={{ fontSize: "16pt" }}
+              className="font-bold text-black leading-none flex-1 min-w-0 text-center break-all"
+              style={{ fontSize: box.id.length > 4 ? "24pt" : "40pt" }}
             >
               {box.id}
             </div>
