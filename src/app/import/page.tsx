@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { read, utils } from "xlsx";
 import { importParts } from "@/lib/actions";
+import { formatAddress } from "@/lib/bins";
 
 interface PreviewRow {
-  barcode?: string;
   item_code: number;
   item_name: string;
   package?: string;
-  location?: string;
+  location: string;
+  bin_number: number;
   details?: string;
   qty?: number;
 }
@@ -35,8 +36,6 @@ export default function ImportPage() {
 
       const parsed: PreviewRow[] = json
         .map((row) => {
-          const barcode =
-            row["Barcode"] ?? row["barcode"];
           const itemCode =
             row["Item Code"] ?? row["item_code"] ?? row["Code"] ?? row["#"];
           const itemName =
@@ -44,22 +43,24 @@ export default function ImportPage() {
           const pkg = row["Package"] ?? row["package"] ?? row["Pkg"];
           const location =
             row["Location"] ?? row["location"] ?? row["Box"] ?? row["box_id"];
+          const bin =
+            row["Bin"] ?? row["bin"] ?? row["Bin Number"] ?? row["bin_number"];
           const details =
             row["Details"] ?? row["details"] ?? row["Description"] ?? row["Desc"];
           const qty =
             row["Qty Available"] ?? row["Qty"] ?? row["qty"] ?? row["Quantity"] ?? row["Count"];
 
           return {
-            barcode: barcode ? String(barcode) : undefined,
             item_code: parseInt(String(itemCode)) || 0,
             item_name: String(itemName || ""),
             package: pkg ? String(pkg) : undefined,
-            location: location ? String(location) : undefined,
+            location: location ? String(location) : "",
+            bin_number: bin ? parseInt(String(bin)) || 0 : 0,
             details: details ? String(details) : undefined,
             qty: qty ? parseInt(String(qty)) || 0 : 0,
           };
         })
-        .filter((r) => r.item_code > 0 && r.item_name);
+        .filter((r) => r.item_code > 0 && r.item_name && r.location && r.bin_number > 0);
 
       setRows(parsed);
     } catch (err) {
@@ -84,7 +85,7 @@ export default function ImportPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Import</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Upload an .xlsx file with columns: Barcode, Item Code, Item Name, Package, Location, Details, Qty Available
+          Upload an .xlsx file with columns: Item Code, Item Name, Package, Location, Bin, Details, Qty Available
         </p>
       </div>
 
@@ -113,7 +114,7 @@ export default function ImportPage() {
                 <thead className="bg-secondary sticky top-0">
                   <tr>
                     <th className="text-left p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Barcode
+                      Bin
                     </th>
                     <th className="text-left p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       #
@@ -135,7 +136,7 @@ export default function ImportPage() {
                 <tbody>
                   {rows.map((row, i) => (
                     <tr key={i} className="border-t border-border/30 hover:bg-accent/50">
-                      <td className="p-3 font-mono text-muted-foreground">{row.barcode}</td>
+                      <td className="p-3 font-mono text-muted-foreground">{formatAddress(row.location, row.bin_number)}</td>
                       <td className="p-3 font-mono text-muted-foreground">{row.item_code}</td>
                       <td className="p-3">{row.item_name}</td>
                       <td className="p-3 font-mono text-muted-foreground">{row.package}</td>

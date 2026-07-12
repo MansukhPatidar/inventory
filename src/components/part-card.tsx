@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { deletePart } from "@/lib/actions";
+import { formatAddress, binOccupants } from "@/lib/bins";
 import type { Part } from "@/lib/types";
 
 export function PartCard({
@@ -59,22 +60,21 @@ export function PartCard({
             )}
           </div>
           <div className="text-xs text-muted-foreground truncate font-mono">
-            {part.barcode && <span>{part.barcode}</span>}
-            {part.location && (
-              <span className="font-sans ml-2 text-primary/70">
-                {part.location}
-              </span>
-            )}
+            <span className="text-primary/80">
+              {formatAddress(part.location, part.bin_number)}
+            </span>
             {part.details && (
               <span className="font-sans ml-2 text-muted-foreground/70">
                 {part.details}
               </span>
             )}
           </div>
-          {part.bin_number != null && part.location && allParts && (() => {
-            const siblings = allParts.filter(
-              (p) => p.id !== part.id && p.location === part.location && p.bin_number === part.bin_number
-            );
+          {allParts && (() => {
+            const siblings = binOccupants(
+              allParts,
+              part.location,
+              part.bin_number
+            ).filter((p) => p.id !== part.id);
             if (siblings.length === 0) return null;
             return (
               <div className="text-xs text-muted-foreground/60 truncate">
@@ -150,7 +150,7 @@ export function PartCard({
             <DialogTitle>Delete part?</DialogTitle>
             <DialogDescription>
               This will permanently delete <strong>{part.item_name}</strong>
-              {part.barcode && <> ({part.barcode})</>}. This cannot be undone.
+              {" "}({formatAddress(part.location, part.bin_number)}). This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-3 justify-end pt-2">

@@ -17,6 +17,7 @@ import { QtyAdjuster } from "@/components/qty-adjuster";
 import { PartForm } from "@/components/part-form";
 import { Textarea } from "@/components/ui/textarea";
 import { getPartById, getQtyLog, deletePart, updatePart } from "@/lib/actions";
+import { formatAddress } from "@/lib/bins";
 import type { Part, QtyLog } from "@/lib/types";
 
 export default function PartDetailWrapper() {
@@ -116,9 +117,9 @@ function PartDetailPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{part.item_name}</h1>
-            {part.barcode && (
-              <p className="text-sm text-muted-foreground font-mono mt-1">{part.barcode}</p>
-            )}
+            <p className="text-sm text-muted-foreground font-mono mt-1">
+              {formatAddress(part.location, part.bin_number)}
+            </p>
           </div>
           <div className="flex gap-2 shrink-0">
             <Button
@@ -136,11 +137,6 @@ function PartDetailPage() {
         </div>
 
         <div className="flex gap-2 flex-wrap mt-3">
-          {part.location && (
-            <Badge className="bg-primary/15 text-primary border-primary/25 hover:bg-primary/20">
-              {part.location}
-            </Badge>
-          )}
           {part.package && (
             <Badge variant="secondary" className="font-mono">
               {part.package}
@@ -249,7 +245,7 @@ function PartDetailPage() {
             <DialogTitle>Delete part?</DialogTitle>
             <DialogDescription>
               This will permanently delete <strong>{part.item_name}</strong>
-              {part.barcode && <> ({part.barcode})</>}. This cannot be undone.
+              {" "}({formatAddress(part.location, part.bin_number)}). This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-3 justify-end pt-2">
