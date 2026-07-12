@@ -24,7 +24,7 @@ export async function getParts(search?: string, location?: string) {
 
   if (search) {
     query = query.or(
-      `item_name.ilike.%${search}%,details.ilike.%${search}%,package.ilike.%${search}%,barcode.ilike.%${search}%`
+      `item_name.ilike.%${search}%,details.ilike.%${search}%,package.ilike.%${search}%`
     );
   }
 
@@ -40,16 +40,6 @@ export async function getPartById(id: number) {
     .eq("id", id)
     .single();
   if (error) throw error;
-  return data as Part;
-}
-
-export async function getPartByBarcode(barcode: string) {
-  const { data, error } = await supabase
-    .from("parts")
-    .select("*")
-    .eq("barcode", barcode)
-    .single();
-  if (error) return null;
   return data as Part;
 }
 
@@ -148,24 +138,24 @@ export async function getNextItemCode() {
 
 export async function importParts(
   parts: {
-    barcode?: string;
     item_code: number;
     item_name: string;
     package?: string;
-    location?: string;
+    location: string;
+    bin_number: number;
     details?: string;
     qty?: number;
   }[]
 ) {
-  // Insert in batches to avoid bulk upsert issues
+  // Insert one at a time — bulk upsert on a partial conflict target is unreliable here.
   const results = [];
   for (const p of parts) {
     const row = {
-      barcode: p.barcode || null,
       item_code: p.item_code,
       item_name: p.item_name,
       package: p.package || null,
-      location: p.location || null,
+      location: p.location,
+      bin_number: p.bin_number,
       details: p.details || null,
       qty: p.qty || 0,
     };
@@ -183,69 +173,14 @@ export async function importParts(
 
 export async function getPartsInBox(
   location: string
-): Promise<{ id: number; item_name: string; item_code: number; bin_number: number | null }[]> {
+): Promise<{ id: number; item_name: string; item_code: number; bin_number: number }[]> {
   const { data, error } = await supabase
     .from("parts")
     .select("id, item_name, item_code, bin_number")
     .eq("location", location)
-    .order("item_code");
+    .order("bin_number");
   if (error) throw error;
-  return data as { id: number; item_name: string; item_code: number; bin_number: number | null }[];
-}
-
-export async function sharebin(partId: number, targetPartId: number) {
-  // Get the target part's current bin_number
-  const { data: target, error: tErr } = await supabase
-    .from("parts")
-    .select("bin_number, location")
-    .eq("id", targetPartId)
-    .single();
-  if (tErr) throw tErr;
-
-  // Get all parts in the same box to compute position if needed
-  let binNum = target.bin_number;
-  if (binNum == null) {
-    // Target has no bin_number — assign one based on its position
-    const { data: boxParts, error: bErr } = await supabase
-      .from("parts")
-      .select("id, bin_number")
-      .eq("location", target.location)
-      .order("item_code");
-    if (bErr) throw bErr;
-
-    // Compute position: shared bins occupy their slot, auto parts fill remaining
-    const shared = new Set<number>();
-    for (const p of boxParts) {
-      if (p.bin_number != null) shared.add(p.bin_number);
-    }
-    let pos = 1;
-    for (const p of boxParts) {
-      if (p.bin_number != null) continue;
-      while (shared.has(pos)) pos++;
-      if (p.id === targetPartId) {
-        binNum = pos;
-        break;
-      }
-      pos++;
-    }
-  }
-
-  if (binNum == null) throw new Error("Could not determine bin number");
-
-  // Set bin_number on both parts
-  const { error: e1 } = await supabase
-    .from("parts")
-    .update({ bin_number: binNum })
-    .eq("id", targetPartId);
-  if (e1) throw e1;
-
-  const { error: e2 } = await supabase
-    .from("parts")
-    .update({ bin_number: binNum })
-    .eq("id", partId);
-  if (e2) throw e2;
-
-  return binNum;
+  return data as { id: number; item_name: string; item_code: number; bin_number: number }[];
 }
 
 // --- Boxes ---
