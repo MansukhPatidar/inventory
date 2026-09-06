@@ -8,6 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getParts } from "@/lib/actions";
 import { decodeBomBuffer, parseBomFull } from "@/lib/bom-parse";
 import { reconcile, findRelaxedCandidates } from "@/lib/bom-match";
@@ -28,10 +37,24 @@ import type {
 type Overrides = Record<number, number>;
 
 /**
- * Session-only per-line triage decision for red lines. Never written to
- * Supabase, never persisted to localStorage — this is explicitly a
- * this-session-only workflow aid; reloading the page or re-parsing the BOM
- * resets it.
+ * Session-only per-row triage decision. Never written to Supabase, never
+ * persisted to localStorage — this is explicitly a this-session-only
+ * workflow aid; reloading the page or re-parsing the BOM resets it.
+ *
+ * This is also the single source of truth for the "Order" column checkbox
+ * on every row (red, amber, or green) — there is deliberately no separate
+ * checked-set state that could disagree with it:
+ *
+ *   - checkbox ticked  <=>  decision.kind === "order"
+ *   - "Mark for ordering" (red-line panel) sets `order`, same as ticking
+ *   - "Use this instead" (substitute) sets `substitute`, which is NOT
+ *     ordering, so it reads as unticked
+ *   - unticking a row (of any status) clears back to `undecided`
+ *
+ * Green/amber rows never show the substitute UI, so in practice their
+ * decision is always `undecided` or `order` — but the type is shared
+ * rather than duplicated so there is exactly one place "does this row get
+ * ordered" is represented.
  */
 type Decision =
   | { kind: "undecided" }
@@ -41,6 +64,11 @@ type Decision =
 type Decisions = Record<number, Decision>;
 
 const UNDECIDED: Decision = { kind: "undecided" };
+
+/** A row's checkbox is ticked exactly when its decision is "order". */
+function isOrderChecked(decision: Decision): boolean {
+  return decision.kind === "order";
+}
 
 const RELAXED_REASON_LABEL: Record<RelaxedReason, string> = {
   "exact-value-other-package": "same value, different package",
@@ -84,6 +112,7 @@ function BomPage() {
   const [statusFilter, setStatusFilter] = useState<MatchStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [exportPreviewOpen, setExportPreviewOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -112,9 +141,18 @@ function BomPage() {
       // counters operate on grouped rows, not raw source lines.
       const grouped = groupBomLines(bomLines);
       setGroups(grouped);
-      setResults(reconcile(grouped.map(groupedLineToBomLine), inventoryParts));
+      const newResults = reconcile(grouped.map(groupedLineToBomLine), inventoryParts);
+      setResults(newResults);
       setOverrides({});
-      setDecisions({});
+      // Missing parts (red rows) start ticked for ordering by default —
+      // everything else starts unticked. This is the same Decision map the
+      // red-line panel's "Mark for ordering" / "Use this instead" actions
+      // write to, so the checkbox and that panel can never disagree.
+      const initialDecisions: Decisions = {};
+      newResults.forEach((r, idx) => {
+        if (r.status === "red") initialDecisions[idx] = { kind: "order" };
+      });
+      setDecisions(initialDecisions);
       setExpandedIdx(null);
     },
     []
@@ -289,75 +327,134 @@ function BomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, overrides, statusFilter, search]);
 
-  function exportCsv() {
+  // Header select-all state is derived from the currently *visible* rows
+  // only (post filter + search), never the full result set — ticking it
+  // must not silently reach into rows the user can't currently see. Rows
+  // the user has already resolved with a substitute are excluded from its
+  // scope entirely: re-running select-all must never silently overwrite an
+  // explicit "use this instead" choice back to "order", so those rows
+  // count toward neither the checked nor the total for this control, and
+  // toggling it leaves them untouched.
+  const visibleOrderEligible = useMemo(
+    () => visibleIndices.filter((idx) => decisionFor(idx).kind !== "substitute"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleIndices, decisions]
+  );
+  const visibleCheckedCount = useMemo(
+    () => visibleOrderEligible.filter((idx) => isOrderChecked(decisionFor(idx))).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleOrderEligible, decisions]
+  );
+  const allVisibleChecked =
+    visibleOrderEligible.length > 0 && visibleCheckedCount === visibleOrderEligible.length;
+  const someVisibleChecked = visibleCheckedCount > 0 && !allVisibleChecked;
+
+  function setOrderChecked(idx: number, checked: boolean) {
+    setDecisions((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        next[idx] = { kind: "order" };
+      } else {
+        // Unticking always returns to "undecided", even for a row that was
+        // ticked via a substitute-clearing path — there is only one
+        // decision slot per row, so "not ordering" can only mean undecided.
+        delete next[idx];
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    const nextChecked = !allVisibleChecked;
+    setDecisions((prev) => {
+      const next = { ...prev };
+      for (const idx of visibleOrderEligible) {
+        if (nextChecked) next[idx] = { kind: "order" };
+        else delete next[idx];
+      }
+      return next;
+    });
+  }
+
+  const csvEscape = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  /** Rows currently ticked for ordering — the export selection. Order
+   *  follows `results` order, independent of the visible/filtered set. */
+  const selectedIndices = useMemo(
+    () => results.map((_, idx) => idx).filter((idx) => isOrderChecked(decisionFor(idx))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [results, decisions]
+  );
+
+  const selectedTotalQty = useMemo(
+    () => selectedIndices.reduce((sum, idx) => sum + (groups[idx]?.quantity ?? 0), 0),
+    [selectedIndices, groups]
+  );
+
+  function buildOrderCsv(): string {
+    // This is an order list, not a full reconciliation dump: every exported
+    // row is, by construction, something the user ticked to buy. Columns
+    // that only make sense for the reconciliation UI itself — match Status,
+    // how many source lines merged, the matched *inventory* item/location/
+    // qty/tier/score, and whether an override was applied — are dropped
+    // since they don't help anyone place an order. Substitute columns are
+    // kept: a ticked row's decision is normally "order" (never
+    // "substitute", since choosing a substitute unticks the row), but the
+    // columns are cheap to keep for schema stability and will simply read
+    // blank for every row today.
     const headers = [
-      "Status",
       "Designators",
       "Comment",
       "Value",
       "Footprint",
-      "BOM Qty",
-      "Merged Source Lines",
+      "Qty To Order",
       "Manufacturer Part Numbers",
-      "Matched Item",
-      "Location",
-      "Bin",
-      "Inv Qty",
-      "Tier",
-      "Score",
-      "Overridden",
-      "Decision",
       "Substitute Part",
       "Substitute Location",
       "Substitute Bin",
     ];
-    const csvEscape = (v: unknown): string => {
-      if (v === null || v === undefined) return "";
-      const s = String(v);
-      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-      return s;
-    };
-    const rows = results.map((r, idx) => {
+    const rows = selectedIndices.map((idx) => {
+      const r = results[idx];
       const row = r.line;
       const g = groups[idx];
-      const st = effectiveStatus(idx, r);
-      const m = effectiveMatch(idx, r);
       const d = decisionFor(idx);
-      const decisionLabel =
-        st !== "red" ? "" : d.kind === "order" ? "order" : d.kind === "substitute" ? "substitute" : "undecided";
       return [
-        st,
         row.designator,
         row.comment,
         row.value,
         row.footprint,
-        row.quantity,
-        g ? g.mergedCount : 1,
+        g ? g.quantity : row.quantity,
         g ? g.mpns.join("; ") : "",
-        m ? m.part.item_name : "",
-        m ? m.part.location : "",
-        m ? m.part.bin_number : "",
-        m ? m.part.qty : "",
-        m ? m.tier : "",
-        m ? m.score.toFixed(2) : "",
-        overrides[idx] !== undefined ? "yes" : "no",
-        decisionLabel,
         d.kind === "substitute" ? d.part.item_name : "",
         d.kind === "substitute" ? d.part.location : "",
         d.kind === "substitute" ? d.part.bin_number : "",
       ];
     });
-    const csv = [headers, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
+    return [headers, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
+  }
+
+  function openExportPreview() {
+    setExportPreviewOpen(true);
+  }
+
+  function confirmDownloadCsv() {
+    const csv = buildOrderCsv();
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "bom_reconciliation.csv";
+    a.download = "bom_order_list.csv";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success("Exported CSV");
+    setExportPreviewOpen(false);
+    toast.success("Exported order list CSV");
   }
 
   return (
@@ -472,7 +569,7 @@ function BomPage() {
               placeholder="Search — all keywords must match, e.g. 0603 100n"
               className="h-8 max-w-sm bg-secondary border-border/50"
             />
-            <Button variant="outline" size="sm" className="ml-auto gap-1.5" onClick={exportCsv}>
+            <Button variant="outline" size="sm" className="ml-auto gap-1.5" onClick={openExportPreview}>
               <Download size={14} /> Export CSV
             </Button>
           </div>
@@ -482,6 +579,19 @@ function BomPage() {
               <table className="w-full text-sm min-w-[1000px]">
                 <thead className="bg-secondary">
                   <tr>
+                    <Th>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Checkbox
+                          checked={allVisibleChecked}
+                          indeterminate={someVisibleChecked}
+                          onChange={toggleSelectAllVisible}
+                          disabled={visibleOrderEligible.length === 0}
+                          aria-label="Select all visible rows for ordering"
+                          title="Select all visible rows for ordering"
+                        />
+                        Order
+                      </span>
+                    </Th>
                     <Th></Th>
                     <Th>Status</Th>
                     <Th>Designators</Th>
@@ -499,7 +609,7 @@ function BomPage() {
                 <tbody>
                   {visibleIndices.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="text-center text-muted-foreground p-8">
+                      <td colSpan={13} className="text-center text-muted-foreground p-8">
                         {searchOnlyCount > 0 ? (
                           <span className="inline-flex flex-wrap items-center justify-center gap-1.5">
                             <span>
@@ -566,6 +676,8 @@ function BomPage() {
                               return next;
                             });
                           }}
+                          orderChecked={isOrderChecked(decisionFor(idx))}
+                          onToggleOrder={(checked) => setOrderChecked(idx, checked)}
                         />
                       );
                     })
@@ -576,6 +688,17 @@ function BomPage() {
           </div>
         </>
       )}
+
+      <ExportPreviewDialog
+        open={exportPreviewOpen}
+        onOpenChange={setExportPreviewOpen}
+        selectedIndices={selectedIndices}
+        results={results}
+        groups={groups}
+        decisionFor={decisionFor}
+        totalQty={selectedTotalQty}
+        onConfirm={confirmDownloadCsv}
+      />
     </div>
   );
 }
@@ -709,6 +832,8 @@ function RowGroup({
   onMarkOrder,
   onSubstitute,
   onClearDecision,
+  orderChecked,
+  onToggleOrder,
 }: {
   result: ReconciledLine;
   group: GroupedBomLine | undefined;
@@ -724,6 +849,8 @@ function RowGroup({
   onMarkOrder: () => void;
   onSubstitute: (part: Part) => void;
   onClearDecision: () => void;
+  orderChecked: boolean;
+  onToggleOrder: (checked: boolean) => void;
 }) {
   const row = result.line;
   const designatorFull = row.designator;
@@ -739,6 +866,14 @@ function RowGroup({
           isExpanded ? "bg-accent/40" : ""
         }`}
       >
+        <td className="p-2.5 w-10">
+          <Checkbox
+            checked={orderChecked}
+            onChange={(e) => onToggleOrder(e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Add ${designatorFull || "this line"} to the order list`}
+          />
+        </td>
         <td className="p-2.5 text-muted-foreground w-6">
           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </td>
@@ -763,7 +898,16 @@ function RowGroup({
             <span className="text-muted-foreground"> ({row.value})</span>
           )}
         </td>
-        <td className="p-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
+        {/*
+          EasyEDA footprints carry a long dimension tail
+          ("CAP-SMD_BD6.3-L6.6-W6.6-LS7.4-FD") that stretches the table and
+          pushes the useful columns off screen. Cap the width and truncate;
+          the full string stays available on hover.
+        */}
+        <td
+          className="p-2.5 font-mono text-xs text-muted-foreground max-w-[140px] truncate"
+          title={row.footprint || undefined}
+        >
           {row.footprint}
         </td>
         <td className="p-2.5 font-mono text-xs">{row.quantity}</td>
@@ -799,7 +943,7 @@ function RowGroup({
       </tr>
       {isExpanded && (
         <tr className="bg-secondary/40 border-t border-border/30">
-          <td colSpan={12} className="p-3 space-y-3">
+          <td colSpan={13} className="p-3 space-y-3">
             {group && group.mergedCount > 1 && <GroupInfoPanel group={group} />}
             {isRed ? (
               <RedLinePanel
@@ -1029,5 +1173,105 @@ function RedLinePanel({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Preview of exactly what "Export CSV" will download: the ticked rows only.
+ * Nothing is downloaded until the user confirms from here — clicking
+ * "Export CSV" in the toolbar never immediately triggers a file save.
+ */
+function ExportPreviewDialog({
+  open,
+  onOpenChange,
+  selectedIndices,
+  results,
+  groups,
+  decisionFor,
+  totalQty,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  selectedIndices: number[];
+  results: ReconciledLine[];
+  groups: GroupedBomLine[];
+  decisionFor: (idx: number) => Decision;
+  totalQty: number;
+  onConfirm: () => void;
+}) {
+  const count = selectedIndices.length;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Export order list</DialogTitle>
+          <DialogDescription>
+            {count === 0
+              ? "No rows are ticked for ordering."
+              : `${count} line${count === 1 ? "" : "s"} ticked for ordering, ${totalQty} total unit${totalQty === 1 ? "" : "s"}. Review before downloading.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {count === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Tick the &ldquo;Order&rdquo; checkbox on at least one row — red (missing) rows
+            are ticked for you by default — then reopen this preview.
+          </p>
+        ) : (
+          <div className="max-h-[50vh] overflow-y-auto overflow-x-auto rounded-lg border border-border/40">
+            <table className="w-full text-xs min-w-[560px]">
+              <thead className="bg-secondary/60 sticky top-0">
+                <tr>
+                  <Th>Designators</Th>
+                  <Th>Value</Th>
+                  <Th>Footprint</Th>
+                  <Th>Qty</Th>
+                  <Th>MPNs</Th>
+                  <Th>Substitute</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedIndices.map((idx) => {
+                  const r = results[idx];
+                  const g = groups[idx];
+                  const d = decisionFor(idx);
+                  return (
+                    <tr key={idx} className="border-t border-border/30">
+                      <td className="p-2 font-mono max-w-[160px] truncate" title={r.line.designator}>
+                        {r.line.designator}
+                      </td>
+                      <td className="p-2">{r.line.value || r.line.comment || "—"}</td>
+                      <td
+                        className="p-2 font-mono max-w-[140px] truncate"
+                        title={r.line.footprint || undefined}
+                      >
+                        {r.line.footprint || "—"}
+                      </td>
+                      <td className="p-2 font-mono whitespace-nowrap">{g ? g.quantity : r.line.quantity}</td>
+                      <td className="p-2 max-w-[160px] truncate" title={g ? g.mpns.join(", ") : ""}>
+                        {g && g.mpns.length > 0 ? g.mpns.join(", ") : "—"}
+                      </td>
+                      <td className="p-2 max-w-[160px] truncate">
+                        {d.kind === "substitute" ? d.part.item_name : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={count === 0} onClick={onConfirm} className="gap-1.5">
+            <Download size={14} /> Download CSV
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
