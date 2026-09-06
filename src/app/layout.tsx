@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { Package, Grid3X3, Plus, Tags, Search } from "lucide-react";
+import { Package, Grid3X3, Plus, Tags, Search, ListChecks } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthGate } from "@/components/auth-gate";
 import "./globals.css";
@@ -61,6 +61,7 @@ export default function RootLayout({
                   <NavLink href="/storage" icon={<Grid3X3 size={16} />}>Boxes</NavLink>
                   <NavLink href="/parts/new" icon={<Plus size={16} />}>Add</NavLink>
                   <NavLink href="/labels" icon={<Tags size={16} />}>Labels</NavLink>
+                  <NavLink href="/bom" icon={<ListChecks size={16} />}>BOM</NavLink>
                 </nav>
               </div>
             </header>
