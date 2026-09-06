@@ -2589,7 +2589,7 @@
   {
     "id": 372,
     "item_code": 244,
-    "item_name": "CH32V003J4M6 SOP8 RISC-V SMD WCH Micro controller ET7879",
+    "item_name": "CH32V003J4M6",
     "package": "SOP-8",
     "location": "B9",
     "details": "CH32V003J4M6 SOP8 RISC-V SMD WCH Micro controller ET7879",
@@ -2602,7 +2602,7 @@
   {
     "id": 373,
     "item_code": 245,
-    "item_name": "CH32V003A4M6 SOP-16 RISC-V Microcontroller WCH A2076",
+    "item_name": "CH32V003A4M6",
     "package": "SOP-16",
     "location": "B9",
     "details": "CH32V003A4M6 SOP-16 RISC-V Microcontroller WCH A2076",
@@ -2797,7 +2797,7 @@
   {
     "id": 388,
     "item_code": 260,
-    "item_name": "SN74LS04DR-HLF-Inverter Logic IC",
+    "item_name": "SN74LS04DR",
     "package": "SOIC-14",
     "location": "B6",
     "details": "SN74LS04DR-HLF-Inverter Logic IC",
@@ -2810,7 +2810,7 @@
   {
     "id": 389,
     "item_code": 261,
-    "item_name": "74LS07-HLF-Hex Buffer/ Driver IC",
+    "item_name": "74LS07",
     "package": "DIP-14",
     "location": "B9",
     "details": "74LS07-HLF-Hex Buffer/ Driver IC",
@@ -2953,7 +2953,7 @@
   {
     "id": 400,
     "item_code": 272,
-    "item_name": "MWSA0605S-150MT-Sunlord-15uH 3.1A 20% 90mOhm Unshielded Wirewound Power Inductor SMD",
+    "item_name": "15uH 3.1A",
     "package": null,
     "location": "B10",
     "details": "MWSA0605S-150MT-Sunlord-15uH 3.1A 20% 90mOhm Unshielded Wirewound Power Inductor SMD",
@@ -3382,7 +3382,7 @@
   {
     "id": 435,
     "item_code": 307,
-    "item_name": "BAV199T-7-F-DIODES INC.-BAV199T-7-F-Small Signal Diode, Dual Series, 85 V, 125 mA, 1.1 V, 3 µs, 4 A",
+    "item_name": "BAV199T-7",
     "package": null,
     "location": "B6",
     "details": "BAV199T-7-F-DIODES INC.-BAV199T-7-F-Small Signal Diode, Dual Series, 85 V, 125 mA, 1.1 V, 3 µs, 4 A",
@@ -3421,7 +3421,7 @@
   {
     "id": 438,
     "item_code": 310,
-    "item_name": "AO3401-ED-HXY MOSFET-20V 3A 120mΩ@4.5V,2A 700mW 400mV 1 P-Channel SOT-23 MOSFETs ROHS",
+    "item_name": "AO3401",
     "package": null,
     "location": "B6",
     "details": "AO3401-ED-HXY MOSFET-20V 3A 120mΩ@4.5V,2A 700mW 400mV 1 P-Channel SOT-23 MOSFETs ROHS",
@@ -3434,7 +3434,7 @@
   {
     "id": 439,
     "item_code": 311,
-    "item_name": "220 uF 35V Surface Mount Electrolytic Capacitor",
+    "item_name": "220uF 35V",
     "package": "D8.0xL10.0",
     "location": "B10",
     "details": "220 uF 35V Surface Mount Electrolytic Capacitor",
@@ -3525,7 +3525,7 @@
   {
     "id": 446,
     "item_code": 318,
-    "item_name": "0603WAF4302T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 43kΩ 0603 Chip Resistor - Surface Mount ROHS",
+    "item_name": "43k",
     "package": "0603",
     "location": "B6",
     "details": "0603WAF4302T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 43kΩ 0603 Chip Resistor - Surface Mount ROHS",
@@ -3564,7 +3564,7 @@
   {
     "id": 450,
     "item_code": 322,
-    "item_name": "WR06X8201FTL-Walsin-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 8.2kΩ 0603 Chip Resistor - Surface Mount ROHS",
+    "item_name": "8.2k",
     "package": "0603",
     "location": "B10",
     "details": "WR06X8201FTL-Walsin-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 8.2kΩ 0603 Chip Resistor - Surface Mount ROHS",
@@ -3798,7 +3798,7 @@
   {
     "id": 468,
     "item_code": 341,
-    "item_name": "AC1206FR-071KL-YAGEO-Res Thick Film 1206 1K Ohm 1% 0.25W(1/4W) ±100ppm/°C Pad SMD T/R Automotive AEC-Q200",
+    "item_name": "1K 1206",
     "package": "1206",
     "location": "B7",
     "details": "AC1206FR-071KL-YAGEO-Res Thick Film 1206 1K Ohm 1% 0.25W(1/4W) ±100ppm/°C Pad SMD T/R Automotive AEC-Q200",
@@ -4162,7 +4162,7 @@
   {
     "id": 496,
     "item_code": 369,
-    "item_name": "0603WAF4994T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 4.99MΩ 0603 Chip Resistor - Surface Mount ROHS",
+    "item_name": "4.99M",
     "package": "0603",
     "location": "B6",
     "details": "0603WAF4994T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 4.99MΩ 0603 Chip Resistor - Surface Mount ROHS",
@@ -4591,7 +4591,7 @@
   {
     "id": 530,
     "item_code": 403,
-    "item_name": "0.5 Ohm 3W Surface Mount Sense Resistor",
+    "item_name": "0.5R",
     "package": "2512",
     "location": "TRANSIT",
     "details": "0.5 Ohm 3W Surface Mount Sense Resistor",
@@ -4656,7 +4656,7 @@
   {
     "id": 535,
     "item_code": 409,
-    "item_name": "OVZ101M1CTR-0606-LELON-16V 100uF ±20% 24mΩ@100kHz~300kHz 2.49A@100kHz SMD,D6.3xL5.9mm Solid Capacitors ROHS",
+    "item_name": "100uF 16V",
     "package": "0606",
     "location": "TRANSIT",
     "details": "OVZ101M1CTR-0606-LELON-16V 100uF ±20% 24mΩ@100kHz~300kHz 2.49A@100kHz SMD,D6.3xL5.9mm Solid Capacitors ROHS",

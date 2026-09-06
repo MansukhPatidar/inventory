@@ -1,38 +1,58 @@
 [
   {
-    "id": 358,
-    "item_name": "P100-E2 Test Probe, Spring Retractable Thimble"
+    "id": 400,
+    "item_name": "MWSA0605S-150MT-Sunlord-15uH 3.1A 20% 90mOhm Unshielded Wirewound Power Inductor SMD"
   },
   {
-    "id": 361,
-    "item_name": "CH224K WCH ESSOP-10 USB PD Fast Charging Protocol Receiving Chip CH224 ETD11134"
+    "id": 439,
+    "item_name": "220 uF 35V Surface Mount Electrolytic Capacitor"
   },
   {
-    "id": 370,
-    "item_name": "TP4056 Micro USB 5V 1A 3.7V Lithium Battery Charger With Protection ET8061"
+    "id": 446,
+    "item_name": "0603WAF4302T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 43kΩ 0603 Chip Resistor - Surface Mount ROHS"
   },
   {
-    "id": 385,
-    "item_name": "X322516MLB4SI-YXC Crystal Oscillators-16MHz Surface Mount Crystal 9pF ±10ppm ±20ppm SMD3225-4P Crystals ROHS"
+    "id": 450,
+    "item_name": "WR06X8201FTL-Walsin-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 8.2kΩ 0603 Chip Resistor - Surface Mount ROHS"
   },
   {
-    "id": 407,
-    "item_name": "XY848AK-9.50-XINYA-2 Pin Barrier Terminal Block"
+    "id": 468,
+    "item_name": "AC1206FR-071KL-YAGEO-Res Thick Film 1206 1K Ohm 1% 0.25W(1/4W) ±100ppm/°C Pad SMD T/R Automotive AEC-Q200"
   },
   {
-    "id": 436,
-    "item_name": "SL1117-3.3-Slkor-SOT-223-3L Voltage Regulators - Linear, Low Drop Out (LDO) Regulators ROHS"
+    "id": 496,
+    "item_name": "0603WAF4994T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 4.99MΩ 0603 Chip Resistor - Surface Mount ROHS"
   },
   {
-    "id": 440,
-    "item_name": "CMD150N03A-Cmos-SMD/MOS TO-252 N field 130W 20(±V)"
+    "id": 530,
+    "item_name": "0.5 Ohm 3W Surface Mount Sense Resistor"
   },
   {
-    "id": 477,
-    "item_name": "U221-041N-4BVS70-S1-XKB-1A 1 4P Female -20℃~+85℃ Type-A SMD USB Connectors ROHS"
+    "id": 535,
+    "item_name": "OVZ101M1CTR-0606-LELON-16V 100uF ±20% 24mΩ@100kHz~300kHz 2.49A@100kHz SMD,D6.3xL5.9mm Solid Capacitors ROHS"
   },
   {
-    "id": 501,
-    "item_name": "AQY282SX-PANASONIC-1 Form A(SPST-NO) 1.14V 60V 850mΩ 500mA SOP-4-2.54mm Solid State Relays (MOS Output) ROHS"
+    "id": 372,
+    "item_name": "CH32V003J4M6 SOP8 RISC-V SMD WCH Micro controller ET7879"
+  },
+  {
+    "id": 373,
+    "item_name": "CH32V003A4M6 SOP-16 RISC-V Microcontroller WCH A2076"
+  },
+  {
+    "id": 388,
+    "item_name": "SN74LS04DR-HLF-Inverter Logic IC"
+  },
+  {
+    "id": 389,
+    "item_name": "74LS07-HLF-Hex Buffer/ Driver IC"
+  },
+  {
+    "id": 435,
+    "item_name": "BAV199T-7-F-DIODES INC.-BAV199T-7-F-Small Signal Diode, Dual Series, 85 V, 125 mA, 1.1 V, 3 µs, 4 A"
+  },
+  {
+    "id": 438,
+    "item_name": "AO3401-ED-HXY MOSFET-20V 3A 120mΩ@4.5V,2A 700mW 400mV 1 P-Channel SOT-23 MOSFETs ROHS"
   }
 ]

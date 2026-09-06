@@ -49,6 +49,32 @@ const ROWS = [
   { code: 312, name: "CMD150N03A" },
   { code: 350, name: "U221-041N" },
   { code: 374, name: "AQY282SX" },
+
+  // --- Passives named by value, per the convention in the curated rows. ---
+  { code: 272, name: "15uH 3.1A" },
+  { code: 311, name: "220uF 35V" },
+  { code: 318, name: "43k" },
+  { code: 322, name: "8.2k" },
+  // 1K collides with #204, a 1kΩ in a 1210 package; the package is appended
+  // automatically so the two stay distinguishable in search.
+  { code: 341, name: "1K" },
+  { code: 369, name: "4.99M" },
+  { code: 403, name: "0.5R" },
+  { code: 409, name: "100uF 16V" },
+
+  // --- ICs and discretes named by MPN. ---
+  { code: 244, name: "CH32V003J4M6" },
+  { code: 245, name: "CH32V003A4M6" },
+  { code: 260, name: "SN74LS04DR" },
+  { code: 261, name: "74LS07" },
+  { code: 307, name: "BAV199T-7" },
+  { code: 310, name: "AO3401" },
+
+  // Deliberately NOT listed, though the classifier is confident about them:
+  //   #138 "ESP32-WROOM-32 WiFi + BT + BLE Module" -> "ESP32" drops the
+  //        module variant, and #390 is already "ESP32-C3 SUPER MINI".
+  //   #294 "LQFP64 Breakout Board ..." -> "LQFP64" makes a breakout board
+  //        read as a bare chip package.
 ];
 
 function parseArgs(argv) {
