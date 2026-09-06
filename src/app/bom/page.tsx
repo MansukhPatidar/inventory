@@ -228,7 +228,7 @@ function BomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, overrides, decisions]);
 
-  const visibleIndices = useMemo(() => {
+  const { visible: visibleIndices, searchOnlyCount } = useMemo(() => {
     // Whitespace-separated keywords, all of which must appear somewhere in
     // the row. Terms are ANDed and each may match a different field, so
     // "0603 100n" finds the 100nF in an 0603 package, and "b10 22uf" finds
@@ -238,37 +238,42 @@ function BomPage() {
       .map((t) => t.replace(/^"|"$/g, "").trim())
       .filter(Boolean);
 
-    return results
-      .map((_, idx) => idx)
-      .filter((idx) => {
-        const r = results[idx];
-        const st = effectiveStatus(idx, r);
-        if (statusFilter !== "all" && st !== statusFilter) return false;
-        if (terms.length === 0) return true;
+    const matchesSearch = (idx: number) => {
+      if (terms.length === 0) return true;
+      // One combined haystack over BOM fields and the matched inventory
+      // part, so a keyword hitting either side counts.
+      const r = results[idx];
+      const row = r.line;
+      const m = effectiveMatch(idx, r);
+      const haystack = [
+        row.comment,
+        row.designator,
+        row.footprint,
+        row.value,
+        row.mpn,
+        row.supplierPart,
+        m?.part.item_name,
+        m?.part.details,
+        m?.part.location,
+        m?.part.package,
+        m ? `bin ${m.part.bin_number}` : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return terms.every((t) => haystack.includes(t));
+    };
 
-        // One combined haystack over BOM fields and the matched inventory
-        // part, so a keyword hitting either side counts.
-        const row = r.line;
-        const m = effectiveMatch(idx, r);
-        const haystack = [
-          row.comment,
-          row.designator,
-          row.footprint,
-          row.value,
-          row.mpn,
-          row.supplierPart,
-          m?.part.item_name,
-          m?.part.details,
-          m?.part.location,
-          m?.part.package,
-          m ? `bin ${m.part.bin_number}` : null,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        return terms.every((t) => haystack.includes(t));
-      });
+    const all = results.map((_, idx) => idx);
+    // Tracked separately so the empty state can distinguish "this search
+    // found nothing" from "the status filter is hiding your results",
+    // which is otherwise a silent dead end.
+    const searchOnly = all.filter(matchesSearch);
+    const visible = searchOnly.filter((idx) => {
+      if (statusFilter === "all") return true;
+      return effectiveStatus(idx, results[idx]) === statusFilter;
+    });
+    return { visible, searchOnlyCount: searchOnly.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, overrides, statusFilter, search]);
 
@@ -471,7 +476,26 @@ function BomPage() {
                   {visibleIndices.length === 0 ? (
                     <tr>
                       <td colSpan={12} className="text-center text-muted-foreground p-8">
-                        No rows match the current filter/search.
+                        {searchOnlyCount > 0 ? (
+                          <span className="inline-flex flex-wrap items-center justify-center gap-1.5">
+                            <span>
+                              {searchOnlyCount}{" "}
+                              {searchOnlyCount === 1 ? "row matches" : "rows match"} this
+                              search, hidden by the {statusFilter} filter.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setStatusFilter("all")}
+                              className="underline underline-offset-2 text-primary hover:opacity-80"
+                            >
+                              Show all statuses
+                            </button>
+                          </span>
+                        ) : search.trim() ? (
+                          "No rows match this search."
+                        ) : (
+                          "No rows match the current filter."
+                        )}
                       </td>
                     </tr>
                   ) : (
