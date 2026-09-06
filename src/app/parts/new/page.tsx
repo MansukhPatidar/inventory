@@ -21,6 +21,7 @@ import {
   getPartsInBox,
   getBoxes,
 } from "@/lib/actions";
+import { classifyPackage } from "@/lib/package-classify";
 import {
   isOutOfRange,
   formatAddress,
@@ -45,9 +46,6 @@ interface QueuedPart {
 }
 
 // --- Paste parser ---
-
-const PKG_RE =
-  /\b(SOI?C-?\d+|DIP-?\d+|QFP-?\d+|TQFP-?\d+|LQFP-?\d+|TO-?\d+|SOP-?\d+|SSOP-?\d+|TSSOP-?\d+|QFN-?\d+|BGA-?\d+|0[0-9]{3,4}|SMD|THT|through.?hole)\b/i;
 
 interface ColumnMap {
   name: number;
@@ -132,27 +130,29 @@ function looksLikeOrderTable(lines: string[]): boolean {
 function parsePastedText(
   text: string,
   startCode: number,
-  location: string
+  location: string,
+  knownPackages: string[] = []
 ): QueuedPart[] {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return [];
 
   if (looksLikeOrderTable(lines)) {
-    return parseOrderTableFormat(lines, startCode, location);
+    return parseOrderTableFormat(lines, startCode, location, knownPackages);
   }
 
   const inlineMatches = lines.filter((l) => INLINE_QTY_RE.test(l));
   if (inlineMatches.length >= lines.filter((l) => !SKIP_LINE_RE.test(l)).length * 0.5) {
-    return parseInlineQtyFormat(lines, startCode, location);
+    return parseInlineQtyFormat(lines, startCode, location, knownPackages);
   }
 
-  return parseTabularFormat(lines, startCode, location);
+  return parseTabularFormat(lines, startCode, location, knownPackages);
 }
 
 function parseInlineQtyFormat(
   lines: string[],
   startCode: number,
-  location: string
+  location: string,
+  knownPackages: string[] = []
 ): QueuedPart[] {
   const parts: QueuedPart[] = [];
   let code = startCode;
@@ -167,19 +167,18 @@ function parseInlineQtyFormat(
     const qty = parseInt(match[2]) || 0;
     if (!name) continue;
 
-    let pkg = "";
-    const pkgMatch = name.match(PKG_RE);
-    if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
+    const guess = classifyPackage(name, knownPackages);
 
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
       item_name: name,
-      package: pkg,
+      package: guess.package,
       location,
       bin_number: 0,
       details: name,
       qty,
+      lowConfidence: guess.confidence === "low" || undefined,
     });
     code++;
   }
@@ -190,7 +189,8 @@ function parseInlineQtyFormat(
 function parseTabularFormat(
   lines: string[],
   startCode: number,
-  location: string
+  location: string,
+  knownPackages: string[] = []
 ): QueuedPart[] {
   // Detect delimiter from first line: tab or multiple spaces
   const delimiter = lines[0].includes("\t") ? "\t" : /\s{2,}/;
@@ -234,9 +234,13 @@ function parseTabularFormat(
 
     if (!details) details = name;
 
+    // A package column, when present, is authoritative; only fall back to
+    // reading the description when the columns didn't supply one.
+    let lowConfidence = false;
     if (!pkg) {
-      const pkgMatch = name.match(PKG_RE);
-      if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
+      const guess = classifyPackage(name, knownPackages);
+      pkg = guess.package;
+      lowConfidence = guess.confidence === "low";
     }
 
     parts.push({
@@ -248,6 +252,7 @@ function parseTabularFormat(
       bin_number: 0,
       details,
       qty,
+      lowConfidence: lowConfidence || undefined,
     });
     code++;
   }
@@ -288,8 +293,7 @@ function classifyColumnsHeuristic(cols: string[]): {
   }
 
   // Extract package from name
-  const pkgMatch = name.match(PKG_RE);
-  if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
+  pkg = classifyPackage(name).package;
 
   // Qty is the last number (rightmost column is usually quantity in order tables)
   if (numbers.length > 0) {
@@ -302,7 +306,8 @@ function classifyColumnsHeuristic(cols: string[]): {
 function parseOrderTableFormat(
   lines: string[],
   startCode: number,
-  location: string
+  location: string,
+  knownPackages: string[] = []
 ): QueuedPart[] {
   let body = lines;
   if (body.length > 0 && ORDER_TABLE_HEADER_RE.test(body[0])) {
@@ -332,17 +337,16 @@ function parseOrderTableFormat(
     const qty = qtyMatch ? parseInt(qtyMatch[1], 10) || 0 : 0;
 
     const item_name = nameLine.trim();
-    let pkg = "";
-    const pkgMatch = item_name.match(PKG_RE);
-    if (pkgMatch) pkg = pkgMatch[0].toUpperCase();
+    const guess = classifyPackage(item_name, knownPackages);
 
-    const lowConfidence = qty === 0 || item_name.length < 5;
+    const lowConfidence =
+      qty === 0 || item_name.length < 5 || guess.confidence === "low";
 
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
       item_name,
-      package: pkg,
+      package: guess.package,
       location,
       bin_number: 0,
       details: item_name,
@@ -544,7 +548,7 @@ export default function NewPartPage() {
     }
 
     const startCode = nextCode + queue.length;
-    const parsed = parsePastedText(pasteText, startCode, trimmedLocation);
+    const parsed = parsePastedText(pasteText, startCode, trimmedLocation, packages);
 
     if (parsed.length === 0) {
       toast.error("Could not parse any parts from the pasted text");
