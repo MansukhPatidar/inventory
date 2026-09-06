@@ -11,9 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { getParts } from "@/lib/actions";
 import { decodeBomBuffer, parseBomFull } from "@/lib/bom-parse";
 import { reconcile, findRelaxedCandidates } from "@/lib/bom-match";
+import { groupBomLines, groupedLineToBomLine } from "@/lib/bom-group";
 import { formatAddress } from "@/lib/bins";
 import type { Part } from "@/lib/types";
 import type { BomLine } from "@/lib/bom-parse";
+import type { GroupedBomLine } from "@/lib/bom-group";
 import type {
   Candidate,
   MatchStatus,
@@ -70,6 +72,7 @@ function BomPage() {
 
   const [bomStatus, setBomStatus] = useState<string | null>(null);
   const [lines, setLines] = useState<BomLine[]>([]);
+  const [groups, setGroups] = useState<GroupedBomLine[]>([]);
   const [results, setResults] = useState<ReconciledLine[]>([]);
   const [overrides, setOverrides] = useState<Overrides>({});
   const [decisions, setDecisions] = useState<Decisions>({});
@@ -103,7 +106,13 @@ function BomPage() {
 
   const runReconciliation = useCallback(
     (bomLines: BomLine[], inventoryParts: Part[]) => {
-      setResults(reconcile(bomLines, inventoryParts));
+      // Grouping is always on — BOM lines that represent the same real
+      // component (same normalized value + footprint, MPN ignored) are
+      // merged into one row before matching, so the matcher and summary
+      // counters operate on grouped rows, not raw source lines.
+      const grouped = groupBomLines(bomLines);
+      setGroups(grouped);
+      setResults(reconcile(grouped.map(groupedLineToBomLine), inventoryParts));
       setOverrides({});
       setDecisions({});
       setExpandedIdx(null);
@@ -217,6 +226,7 @@ function BomPage() {
     const distinct = new Set(
       results.map((r) => `${r.line.mpn || r.line.comment || ""}|${r.line.footprint || ""}`)
     );
+    const sourceLineCount = groups.reduce((sum, g) => sum + g.mergedCount, 0);
     return {
       ...c,
       total: results.length,
@@ -224,9 +234,11 @@ function BomPage() {
       redUndecided,
       redOrder,
       redSubstitute,
+      sourceLineCount,
+      mergedGroupCount: groups.filter((g) => g.mergedCount > 1).length,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, overrides, decisions]);
+  }, [results, overrides, decisions, groups]);
 
   const { visible: visibleIndices, searchOnlyCount } = useMemo(() => {
     // Whitespace-separated keywords, all of which must appear somewhere in
@@ -285,6 +297,8 @@ function BomPage() {
       "Value",
       "Footprint",
       "BOM Qty",
+      "Merged Source Lines",
+      "Manufacturer Part Numbers",
       "Matched Item",
       "Location",
       "Bin",
@@ -305,6 +319,7 @@ function BomPage() {
     };
     const rows = results.map((r, idx) => {
       const row = r.line;
+      const g = groups[idx];
       const st = effectiveStatus(idx, r);
       const m = effectiveMatch(idx, r);
       const d = decisionFor(idx);
@@ -317,6 +332,8 @@ function BomPage() {
         row.value,
         row.footprint,
         row.quantity,
+        g ? g.mergedCount : 1,
+        g ? g.mpns.join("; ") : "",
         m ? m.part.item_name : "",
         m ? m.part.location : "",
         m ? m.part.bin_number : "",
@@ -414,6 +431,13 @@ function BomPage() {
 
       {results.length > 0 && (
         <>
+          {counts.mergedGroupCount > 0 && (
+            <p className="text-xs text-muted-foreground/70 italic">
+              {counts.sourceLineCount} source lines merged into {counts.total} rows (
+              {counts.mergedGroupCount} row{counts.mergedGroupCount === 1 ? "" : "s"} combined
+              multiple BOM lines with the same value and footprint).
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <CounterPill label="Total" value={counts.total} tone="default" />
             <CounterPill label="Green" value={counts.green} tone="green" />
@@ -509,6 +533,7 @@ function BomPage() {
                         <RowGroup
                           key={idx}
                           result={r}
+                          group={groups[idx]}
                           status={st}
                           match={m}
                           isExpanded={isExpanded}
@@ -671,6 +696,7 @@ function DecisionPill({ decision }: { decision: Decision }) {
 
 function RowGroup({
   result,
+  group,
   status,
   match,
   isExpanded,
@@ -685,6 +711,7 @@ function RowGroup({
   onClearDecision,
 }: {
   result: ReconciledLine;
+  group: GroupedBomLine | undefined;
   status: MatchStatus;
   match: Candidate | null;
   isExpanded: boolean;
@@ -720,6 +747,15 @@ function RowGroup({
         </td>
         <td className="p-2.5 font-mono text-xs max-w-[220px] truncate" title={designatorFull}>
           {designatorTruncated}
+          {group && group.mergedCount > 1 && (
+            <Badge
+              variant="outline"
+              className="ml-1.5 text-[9px] border-primary/40 text-primary align-middle"
+              title={`${group.mergedCount} source BOM lines merged into this row`}
+            >
+              ×{group.mergedCount}
+            </Badge>
+          )}
         </td>
         <td className="p-2.5">
           {row.comment}
@@ -763,7 +799,8 @@ function RowGroup({
       </tr>
       {isExpanded && (
         <tr className="bg-secondary/40 border-t border-border/30">
-          <td colSpan={12} className="p-3">
+          <td colSpan={12} className="p-3 space-y-3">
+            {group && group.mergedCount > 1 && <GroupInfoPanel group={group} />}
             {isRed ? (
               <RedLinePanel
                 relaxedCandidates={relaxedCandidates}
@@ -844,6 +881,41 @@ function RowGroup({
         </tr>
       )}
     </>
+  );
+}
+
+/**
+ * Plain informational panel shown for a grouped row (mergedCount > 1):
+ * which source BOM lines were combined, and the distinct manufacturer part
+ * numbers seen across them. This is explicitly NOT a warning or conflict —
+ * the user's rule is that value+footprint is dominant and MPN differences
+ * are expected and ignored when grouping, so this is styled like any other
+ * neutral info block, not an amber/red alert.
+ */
+function GroupInfoPanel({ group }: { group: GroupedBomLine }) {
+  return (
+    <div className="rounded-lg border border-border/40 bg-card px-3 py-2.5 text-xs space-y-2">
+      <p className="text-muted-foreground">
+        {group.mergedCount} source BOM lines share this value and footprint and were
+        combined into one row.
+      </p>
+      <div className="space-y-1">
+        {group.members.map((m, i) => (
+          <div key={i} className="flex flex-wrap items-baseline gap-x-2 font-mono">
+            <span className="text-foreground">{m.designator || "—"}</span>
+            <span className="text-muted-foreground/70">
+              qty {m.quantity || "0"}
+              {m.mpn ? ` · MPN ${m.mpn}` : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+      {group.mpns.length > 0 && (
+        <p className="text-muted-foreground/80">
+          Distinct manufacturer part numbers: {group.mpns.join(", ")}
+        </p>
+      )}
+    </div>
   );
 }
 
