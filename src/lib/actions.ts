@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { parseSearchTerms, escapeOrTerm } from "./search-terms";
 import type { Part, Box } from "./types";
 
 export async function getLocations(): Promise<string[]> {
@@ -21,10 +22,18 @@ export async function getParts(search?: string, location?: string) {
     query = query.eq("location", location);
   }
 
+  // Every keyword must appear somewhere in the row, but each one may match a
+  // different column — so "0603 100n" finds a 100nF part whose package field
+  // says 0603, which a single whole-string ilike could never do. Terms are
+  // ANDed by chaining a separate .or() per term; conditions within one .or()
+  // are the columns that term may match.
   if (search) {
-    query = query.or(
-      `item_name.ilike.%${search}%,details.ilike.%${search}%,package.ilike.%${search}%`
-    );
+    for (const term of parseSearchTerms(search)) {
+      const safe = escapeOrTerm(term);
+      query = query.or(
+        `item_name.ilike."%${safe}%",details.ilike."%${safe}%",package.ilike."%${safe}%",location.ilike."%${safe}%"`
+      );
+    }
   }
 
   const { data, error } = await query;
