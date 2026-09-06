@@ -67,7 +67,7 @@ async function loadEnvLocal() {
 }
 
 async function fetchPage(baseUrl, key, table, from, to) {
-  const url = `${baseUrl}/rest/v1/${encodeURIComponent(table)}?select=id,item_code,item_name,package&order=id.asc`;
+  const url = `${baseUrl}/rest/v1/${encodeURIComponent(table)}?select=id,item_code,item_name,package,details&order=id.asc`;
   const res = await fetch(url, {
     headers: {
       apikey: key,
@@ -126,9 +126,23 @@ async function main() {
   const changes = [];
   for (const row of rows) {
     const before = row.package;
-    // Leave NULL alone: an absent package and an empty one mean the same
-    // thing, and rewriting NULL to "" would churn rows for no gain.
-    if (before === null || before === undefined) continue;
+    // A row with no package may still name one in its description; filling
+    // that in is the whole point of having a classifier. Only a confident
+    // read is accepted, so a guess never lands in an empty field.
+    if (before === null || before === undefined) {
+      const guess = classifyPackage(row.details || row.item_name || "");
+      if (guess.confidence === "high" && guess.package !== "") {
+        changes.push({
+          id: row.id,
+          item_code: row.item_code,
+          item_name: row.item_name,
+          before,
+          after: guess.package,
+          recovered: true,
+        });
+      }
+      continue;
+    }
     let after = canonicalPackage(before);
     let recovered = false;
     // A stored "SMD" names a mount style, not a footprint, so canonicalizing
@@ -136,7 +150,7 @@ async function main() {
     // name states a real package ("... 1206 CCTC ...", "... TO-252 ...") —
     // recovering it is strictly better than dropping to blank.
     if (after === "") {
-      const guess = classifyPackage(row.item_name || "");
+      const guess = classifyPackage(row.details || row.item_name || "");
       if (guess.confidence === "high" && guess.package !== "") {
         after = guess.package;
         recovered = true;
@@ -170,7 +184,7 @@ async function main() {
   const emptied = [];
   const recoveredRows = [];
   for (const [pair, items] of [...groups.entries()].sort((a, b) => b[1].length - a[1].length)) {
-    console.log(`${String(items.length).padStart(3)}x  ${pair}`);
+    console.log(`${String(items.length).padStart(3)}x  ${pair.replace("null ->", "(none) ->")}`);
     for (const it of items) {
       const tag = it.recovered ? " [read from name]" : "";
       console.log(`        #${it.item_code} ${String(it.item_name).slice(0, 58)}${tag}`);
