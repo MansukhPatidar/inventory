@@ -44,14 +44,97 @@ function tokenizeWords(text: string | null | undefined): string[] {
   return m ? m : [];
 }
 
-/** Extract candidate MPN-shaped tokens (alnum, mixed letters+digits, length >= 5). */
+/**
+ * Standard minimum length for an MPN-shaped token. Tokens at exactly this
+ * length are short enough that most of them are values or package codes
+ * rather than part numbers, so they pass through the extra
+ * {@link isPlausibleShortMpnToken} shape filter that longer tokens skip.
+ * Both the BOM side and the inventory side share this one constant so
+ * neither can drift out of sync with the other (see {@link mpnCandidates}
+ * and the tier-1 length check in `matchLine`).
+ */
+const MIN_MPN_TOKEN_LEN = 4;
+
+/**
+ * Unit/spec suffixes that turn a leading run of digits into a *value*
+ * (`100V`, `47UF`, `100K`, `01W1`) rather than a part number. Longest first
+ * so e.g. `KHZ` is tried before `K`/`H`/`Z`.
+ */
+const VALUE_UNIT_SUFFIXES = [
+  "KHZ",
+  "MHZ",
+  "OHM",
+  "PPM",
+  "UF",
+  "NF",
+  "PF",
+  "MF",
+  "UH",
+  "NH",
+  "MH",
+  "MA",
+  "MW",
+  "MV",
+  "MM",
+  "CM",
+  "PCS",
+  "V",
+  "A",
+  "W",
+  "K",
+  "M",
+  "R",
+  "F",
+  "H",
+  "Z",
+  "C",
+  "N",
+].sort((a, b) => b.length - a.length);
+
+/** e.g. `100V`, `47UF`, `01W1` (digits, unit, optional trailing digits). */
+const VALUE_SHAPE_RE = new RegExp(
+  `^[0-9]+(?:${VALUE_UNIT_SUFFIXES.join("|")})[0-9]*$`
+);
+
+/** Package or switch-configuration codes, not part numbers: `TO92`, `SOP8`,
+ * `DIP8`, `SOT23`, `QFN20`, and pole/throw forms like `1P2T`, `2P2T`. */
+const PACKAGE_SHAPE_RE =
+  /^(?:TO|SOP|SOIC|SOT|DIP|QFN|TSSOP|ESSOP|LQFP)[0-9]+$|^[0-9]+P[0-9]+T$/;
+
+/**
+ * Extra plausibility filter applied only to {@link MIN_MPN_TOKEN_LEN}
+ * (4-character) tokens: reject value-shaped (`100V`, `47UF`, `100K`) and
+ * package/switch-shaped (`TO92`, `SOP8`, `1P2T`) tokens, which vastly
+ * outnumber genuine 4-character part numbers (`SS54`, `SS36`) in real
+ * inventory/BOM text. Tokens longer than {@link MIN_MPN_TOKEN_LEN} are not
+ * subject to this filter and always return true.
+ */
+function isPlausibleShortMpnToken(t: string): boolean {
+  if (t.length !== MIN_MPN_TOKEN_LEN) return true;
+  if (VALUE_SHAPE_RE.test(t)) return false;
+  if (PACKAGE_SHAPE_RE.test(t)) return false;
+  return true;
+}
+
+/**
+ * Extract candidate MPN-shaped tokens: alnum, mixed letters+digits, length
+ * >= {@link MIN_MPN_TOKEN_LEN}. Tokens at exactly {@link MIN_MPN_TOKEN_LEN}
+ * characters are additionally required to pass
+ * {@link isPlausibleShortMpnToken} — see that function for why.
+ */
 function mpnCandidates(text: string | null | undefined): string[] {
   if (!text) return [];
   const parts = text.split(/[-/\s]+/);
   const out: string[] = [];
   for (const p of parts) {
     const t = normAlnum(p);
-    if (t.length >= 5 && /[0-9]/.test(t) && /[A-Z]/.test(t)) out.push(t);
+    if (
+      t.length >= MIN_MPN_TOKEN_LEN &&
+      /[0-9]/.test(t) &&
+      /[A-Z]/.test(t) &&
+      isPlausibleShortMpnToken(t)
+    )
+      out.push(t);
   }
   return out;
 }
@@ -281,12 +364,51 @@ interface InventoryEntry {
   ftoks: Record<string, 1>;
 }
 
+/**
+ * Short (exactly {@link MIN_MPN_TOKEN_LEN}-character) MPN tokens that are
+ * genuinely ambiguous within this inventory — the same token appears in more
+ * than one *distinct* part (e.g. `Q200`, an AEC-Q200 qualification marker
+ * shared by 11 unrelated resistors, or `8D43`, an inductor series code
+ * shared by two different inductor values). Such a token is not usable
+ * evidence for an MPN-tier match even though it individually passed
+ * {@link isPlausibleShortMpnToken}. Tokens longer than
+ * {@link MIN_MPN_TOKEN_LEN} keep their existing behaviour and are never
+ * added here.
+ */
+function findAmbiguousShortMpnTokens(parts: Part[]): Set<string> {
+  const tokenToPartIds = new Map<string, Set<number>>();
+  for (const p of parts) {
+    const text = [p.item_name, p.details]
+      .filter((v): v is string => v !== null && v !== undefined)
+      .join(" ");
+    const shortTokens = new Set(
+      mpnCandidates(text).filter((t) => t.length === MIN_MPN_TOKEN_LEN)
+    );
+    for (const t of shortTokens) {
+      let ids = tokenToPartIds.get(t);
+      if (!ids) {
+        ids = new Set();
+        tokenToPartIds.set(t, ids);
+      }
+      ids.add(p.id);
+    }
+  }
+  const ambiguous = new Set<string>();
+  for (const [t, ids] of tokenToPartIds) {
+    if (ids.size > 1) ambiguous.add(t);
+  }
+  return ambiguous;
+}
+
 function buildInventoryIndex(parts: Part[]): InventoryEntry[] {
+  const ambiguousShortTokens = findAmbiguousShortMpnTokens(parts);
   return parts.map((p) => {
     const text = [p.item_name, p.details]
       .filter((v): v is string => v !== null && v !== undefined)
       .join(" ");
-    const mpnCandArr = mpnCandidates(text);
+    const mpnCandArr = mpnCandidates(text).filter(
+      (t) => t.length !== MIN_MPN_TOKEN_LEN || !ambiguousShortTokens.has(t)
+    );
     const mpnSet: Record<string, 1> = {};
     mpnCandArr.forEach((c) => {
       mpnSet[c] = 1;
@@ -334,7 +456,11 @@ function matchLine(bomRec: BomLine, invIndex: InventoryEntry[]): Candidate[] {
     let bestScore = 0;
 
     // Tier 1: MPN
-    if (bomMpnNorm && bomMpnNorm.length >= 4) {
+    if (
+      bomMpnNorm &&
+      bomMpnNorm.length >= MIN_MPN_TOKEN_LEN &&
+      isPlausibleShortMpnToken(bomMpnNorm)
+    ) {
       let hit = false;
       if (Object.prototype.hasOwnProperty.call(entry.mpnSet, bomMpnNorm)) hit = true;
       if (!hit && bomMpnNorm.length >= 7) {

@@ -147,6 +147,139 @@ describe("reconcile — MPN tier", () => {
   });
 });
 
+describe("reconcile — 4-character MPN tokens", () => {
+  it("matches SS54 (BOM) against an SS54 inventory part on the MPN tier", () => {
+    const parts = [
+      part({
+        item_name: "SS54",
+        package: "DO-214AC",
+        details: "SS54 SMA Diode 5A 40V – Schottky Barrier Rectifier Diode",
+        qty: 25,
+      }),
+    ];
+    const lines = [
+      bomLine({
+        comment: "SS54",
+        designator: "D6",
+        footprint: "SMB_L4.3-W3.6-LS5.2-RD",
+        mpn: "SS54",
+        manufacturer: "NH(纽航)",
+        supplierPart: "C7428196",
+      }),
+    ];
+    const [result] = reconcile(lines, parts);
+    expect(result.status).toBe("green");
+    expect(result.candidates[0].tier).toBe("mpn");
+    expect(result.candidates[0].part.id).toBe(parts[0].id);
+  });
+
+  it("matches SS36 the same way", () => {
+    const parts = [
+      part({
+        item_name: "SS36",
+        package: "DO-214AC",
+        details: "SS36 SMA Diode 3A 60V Schottky Barrier Rectifier Diode",
+      }),
+    ];
+    const lines = [
+      bomLine({ comment: "SS36", designator: "D1", mpn: "SS36" }),
+    ];
+    const [result] = reconcile(lines, parts);
+    expect(result.status).toBe("green");
+    expect(result.candidates[0].tier).toBe("mpn");
+    expect(result.candidates[0].part.id).toBe(parts[0].id);
+  });
+
+  it("still matches a 5-character MPN (BAV99), unaffected by the 4-char rules", () => {
+    const parts = [
+      part({
+        item_name: "BAV99",
+        package: "SOT-23",
+        details:
+          "BAV99-SEMTECH-75V 1 pair in series 1V@50mA 4ns 215mA SOT-23 Switching Diodes ROHS",
+      }),
+    ];
+    const lines = [
+      bomLine({ comment: "BAV99", designator: "D2", mpn: "BAV99" }),
+    ];
+    const [result] = reconcile(lines, parts);
+    expect(result.status).toBe("green");
+    expect(result.candidates[0].tier).toBe("mpn");
+    expect(result.candidates[0].part.id).toBe(parts[0].id);
+  });
+
+  it("does NOT MPN-match a 10uF BOM line merely because both texts contain 10UF", () => {
+    const parts = [
+      part({
+        item_name: "10uF 0805 Capacitor",
+        details: "Murata 10UF 25V X5R 0805 MLCC",
+        package: "C0805",
+      }),
+    ];
+    const lines = [
+      bomLine({
+        comment: "10UF",
+        mpn: "10UF", // e.g. a sloppy BOM where the MPN column repeats the value
+        value: "10uF",
+        footprint: "C0805",
+      }),
+    ];
+    const [result] = reconcile(lines, parts);
+    // A "10UF" MPN column must not hit the MPN tier — 10UF is value-shaped.
+    // (It may still legitimately match on the value+package tier, which is
+    // untouched by this change and is a correct, unrelated green result.)
+    expect(result.candidates.every((c) => c.tier !== "mpn")).toBe(true);
+  });
+
+  it("rejects value-shaped and package-shaped 4-character tokens as MPNs", () => {
+    const values = ["100V", "47UF", "TO92", "SOP8", "1P2T", "5PCS"];
+    for (const tok of values) {
+      const parts = [
+        part({
+          item_name: "Unrelated widget",
+          details: `Some part with a ${tok} marking in its description text`,
+        }),
+      ];
+      const lines = [bomLine({ comment: tok, mpn: tok })];
+      const [result] = reconcile(lines, parts);
+      expect(
+        result.candidates.every((c) => c.tier !== "mpn"),
+        `expected "${tok}" not to MPN-match`
+      ).toBe(true);
+    }
+  });
+
+  it("produces no MPN-tier match for an ambiguous 4-char token shared by two distinct parts", () => {
+    const parts = [
+      part({
+        item_name: "100R Resistor",
+        details: "AC0603JR-07100RL Res Thick Film 0603 100 Ohm Automotive AEC-Q200",
+        package: "C0603",
+      }),
+      part({
+        item_name: "470K Resistor",
+        details: "AC0603JR-07470KL Res Thick Film 0603 470K Ohm Automotive AEC-Q200",
+        package: "C0603",
+      }),
+    ];
+    const lines = [bomLine({ comment: "AEC-Q200", mpn: "Q200" })];
+    const [result] = reconcile(lines, parts);
+    expect(result.candidates.every((c) => c.tier !== "mpn")).toBe(true);
+  });
+
+  it("still rejects 3-character-and-shorter tokens (existing behaviour unchanged)", () => {
+    const parts = [
+      part({
+        item_name: "Some part",
+        details: "Contains SS5 as a short substring, not a real MPN match",
+      }),
+    ];
+    const lines = [bomLine({ comment: "SS5", mpn: "SS5" })];
+    const [result] = reconcile(lines, parts);
+    expect(result.candidates.every((c) => c.tier !== "mpn")).toBe(true);
+  });
+});
+
 describe("reconcile — supplier tier false-positive guard", () => {
   it("does not let C15 substring-match an entry containing C1591", () => {
     const parts = [
