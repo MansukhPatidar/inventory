@@ -448,6 +448,7 @@ export function reconcile(lines: BomLine[], parts: Part[]): ReconciledLine[] {
    ========================================================================= */
 
 export type RelaxedReason =
+  | "same-part-different-packaging"
   | "exact-value-other-package"
   | "near-value-same-package"
   | "near-value-other-package";
@@ -589,6 +590,104 @@ function looksLikeSemiconductor(line: BomLine): boolean {
   return mpnLike.length > 0;
 }
 
+/* ---- Part-number identity (numeric content + prefix), packaging-code tolerant ---- */
+
+/** Minimum digit count for the part-number-identity rule below — below this,
+ * "digits match" is nearly meaningless (e.g. bare letters, or `NF-04`-style
+ * codes) and would risk mass-matching unrelated parts. */
+const MIN_IDENTITY_DIGITS = 3;
+
+/** All digits in a part number, concatenated in order (no separators). */
+function digitsOf(s: string): string {
+  return (s.match(/[0-9]/g) || []).join("");
+}
+
+/** The run of letters before the first digit, e.g. `TPS54302DDCT` -> `TPS`. */
+function alphaPrefixOf(s: string): string {
+  const m = /^([A-Z]+)/.exec(s);
+  return m ? m[1] : "";
+}
+
+/**
+ * True when two part-number-shaped tokens (already `mpnCandidates`-normalized:
+ * uppercase, alnum-only) are the "same part, different packaging/tape-and-reel
+ * suffix" — e.g. `TPS54302DDCT` (tape/reel "T") vs `TPS54302DDCR` (reel "R").
+ *
+ * Deliberately narrow and exact, per the user's specified rule:
+ *   - digits extracted in order must match EXACTLY (not "close"), and there
+ *     must be at least {@link MIN_IDENTITY_DIGITS} of them;
+ *   - the alphabetic prefix before the first digit must match too, so e.g.
+ *     a bare numeric suffix shared by two otherwise-unrelated part families
+ *     can't pair them up.
+ *
+ * This says nothing about package — callers must separately require the
+ * same (not just same-family) normalized package before treating this as a
+ * safe suggestion.
+ */
+function samePartNumberIdentity(a: string, b: string): boolean {
+  if (a === b) return false; // identical tokens would already be a strict-tier hit
+  const da = digitsOf(a);
+  const db = digitsOf(b);
+  if (da.length < MIN_IDENTITY_DIGITS) return false;
+  if (da !== db) return false;
+  return alphaPrefixOf(a) === alphaPrefixOf(b);
+}
+
+/**
+ * For a single `red` line, look for an inventory part whose part number is
+ * the *same chip* as the BOM's, differing only in a trailing
+ * packaging/tape-and-reel code — and which sits in the identical (not just
+ * same-family) normalized package. This is the one part-number-equivalence
+ * guess considered safe enough to run even for semiconductors: see
+ * {@link samePartNumberIdentity} for the exact rule.
+ *
+ * Reuses {@link mpnCandidates} for the inventory side — the same free-text
+ * MPN extraction problem tier 1 already solves — rather than a second
+ * extractor.
+ */
+function findSamePartDifferentPackaging(
+  line: BomLine,
+  parts: Part[]
+): RelaxedCandidate[] {
+  const bomTokens = mpnCandidates(
+    [line.mpn, line.comment].filter(Boolean).join(" ")
+  );
+  if (bomTokens.length === 0) return [];
+
+  const bomPkg = line.footprint ? normPackage(line.footprint) : null;
+  if (!bomPkg) return []; // "same package" is required; unknown can't satisfy it
+
+  const out: RelaxedCandidate[] = [];
+  for (const p of parts) {
+    const entryPkg = normPackage(p.package);
+    if (entryPkg === null || entryPkg !== bomPkg) continue;
+
+    const text = [p.item_name, p.details]
+      .filter((v): v is string => v !== null && v !== undefined)
+      .join(" ");
+    const entryTokens = mpnCandidates(text);
+    if (entryTokens.length === 0) continue;
+
+    const isMatch = bomTokens.some((bt) =>
+      entryTokens.some((et) => samePartNumberIdentity(bt, et))
+    );
+    if (isMatch) {
+      out.push({
+        part: p,
+        reason: "same-part-different-packaging",
+        // Above the value-based reasons (max 0.85): a numeric+package
+        // identity on a semiconductor is a stronger signal than a nearby
+        // resistor value.
+        score: 0.95,
+        crossFamily: false,
+      });
+    }
+  }
+
+  out.sort((a, b) => b.score - a.score);
+  return out;
+}
+
 /**
  * Marker words that mean a number in an inventory row is a *spec* of some
  * active or frequency-dependent part, not that part's own value.
@@ -617,15 +716,21 @@ function inventoryValueIsSpec(part: Part, kind: ValueKind): boolean {
 
 /**
  * For a single `red` reconciled line, search the full inventory for
- * near-miss passive-component candidates: same value in a different
- * package, or a nearby value in the same (or a different) package. Returns
- * up to 8 candidates, strongest first. Returns an empty array for lines
- * that look like semiconductors/ICs (no parsable value) — we never guess
- * part-number equivalence there.
+ * near-miss candidates. For value-bearing (passive) lines: same value in a
+ * different package, or a nearby value in the same (or a different)
+ * package, plus (per {@link findSamePartDifferentPackaging}) an exact
+ * part-number identity in the same package. Returns up to 8 candidates,
+ * strongest first.
  *
- * The same suppression applies in the other direction: an inventory row
- * whose ohm reading is an on-resistance or impedance spec is skipped, so
- * active parts are never offered as passive substitutes.
+ * For lines that look like semiconductors/ICs (no parsable value), only the
+ * part-number-identity check runs — guessing part-number *equivalence* for
+ * actives is dangerous in general, but a numeric-content-plus-package match
+ * (e.g. `TPS54302DDCT` vs `TPS54302DDCR`, same chip, different tape/reel
+ * suffix) is narrow and safe enough to surface even there.
+ *
+ * The same suppression applies in the other direction on the passive path:
+ * an inventory row whose ohm reading is an on-resistance or impedance spec
+ * is skipped, so active parts are never offered as passive substitutes.
  *
  * Pure and read-only: does not mutate `line` or `parts`, and is never
  * invoked from `reconcile` — callers run it only for lines whose `status`
@@ -638,12 +743,16 @@ export function findRelaxedCandidates(
   const line = redLine.line;
   if (redLine.status !== "red") return [];
 
+  const identityCandidates = findSamePartDifferentPackaging(line, parts);
+
   const bomVal = line.value ? parseValue(line.value) : null;
   const bomValFromComment = !bomVal && line.comment ? parseValue(line.comment) : null;
   const effectiveVal = bomVal || bomValFromComment;
 
-  if (!effectiveVal) return []; // no parsable value: never guess at ICs/semis
-  if (looksLikeSemiconductor(line)) return [];
+  // No parsable value anywhere: never guess at ICs/semis beyond the exact
+  // part-number-identity rule above.
+  if (!effectiveVal) return identityCandidates;
+  if (looksLikeSemiconductor(line)) return identityCandidates;
 
   const bomPkg = line.footprint ? normPackage(line.footprint) : null;
   const bomFamily = packageFamily(line.footprint);
@@ -719,6 +828,17 @@ export function findRelaxedCandidates(
     }
 
     out.push({ part: p, reason, score, crossFamily });
+  }
+
+  // A part-number identity is meaningful regardless of value-based tiers —
+  // surface it here too for non-semiconductor lines. Merge by part id so a
+  // part that already turned up via the value-based rules isn't duplicated;
+  // when both apply, the (higher-scoring) identity reason wins since it's a
+  // stronger signal than a nearby resistor value.
+  for (const ic of identityCandidates) {
+    const dupIdx = out.findIndex((c) => c.part.id === ic.part.id);
+    if (dupIdx === -1) out.push(ic);
+    else out[dupIdx] = ic;
   }
 
   out.sort((a, b) => b.score - a.score);

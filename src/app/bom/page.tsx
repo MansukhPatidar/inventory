@@ -71,6 +71,7 @@ function isOrderChecked(decision: Decision): boolean {
 }
 
 const RELAXED_REASON_LABEL: Record<RelaxedReason, string> = {
+  "same-part-different-packaging": "same part, different packaging code",
   "exact-value-other-package": "same value, different package",
   "near-value-same-package": "close value, same package",
   "near-value-other-package": "close value, different package",

@@ -648,3 +648,290 @@ describe("findRelaxedCandidates — never touches green/amber lines", () => {
     expect(after[1].status).toBe(before[1].status);
   });
 });
+
+describe("findRelaxedCandidates — same-part-different-packaging", () => {
+  it("accepts TPS54302DDCT (BOM) vs TPS54302DDCR (inventory): same chip, same package, trailing tape/reel letter differs", () => {
+    const parts = [
+      part({
+        item_name: "TPS54302DDCR",
+        details: "TI TPS54302DDCR 3A Buck Converter",
+        package: "TSOT-23-6",
+      }),
+    ];
+    const line = bomLine({
+      comment: "TPS54302",
+      value: "",
+      footprint: "TSOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR",
+      mpn: "TPS54302DDCT",
+      designator: "U3",
+    });
+    const red = redLineFor(line, parts);
+    const relaxed = findRelaxedCandidates(red, parts);
+    expect(relaxed.length).toBe(1);
+    expect(relaxed[0].reason).toBe("same-part-different-packaging");
+    expect(relaxed[0].part.item_name).toBe("TPS54302DDCR");
+    expect(relaxed[0].crossFamily).toBe(false);
+  });
+
+  it("scores same-part-different-packaging above the value-based reasons", () => {
+    // A non-semiconductor line where both an identity match and a
+    // value-based near-miss are present — identity must outrank it.
+    const parts = [
+      part({
+        item_name: "Some other 33k widget",
+        details: "QRS99887ZZ 33k widget, exact value other package",
+        package: "0805",
+      }),
+      part({
+        item_name: "ABC12345XR",
+        details: "ABC12345XR 33k widget, same part different packaging",
+        package: "0603",
+      }),
+    ];
+    const line = bomLine({
+      comment: "33kΩ",
+      value: "33kΩ",
+      footprint: "R0603",
+      mpn: "ABC12345XT",
+      designator: "R1",
+    });
+    const red = redLineFor(line, parts);
+    const relaxed = findRelaxedCandidates(red, parts);
+    expect(relaxed[0].reason).toBe("same-part-different-packaging");
+    expect(relaxed[0].part.item_name).toBe("ABC12345XR");
+  });
+
+  it("rejects SMBJ22A vs SMBJ220A (22V vs 220V TVS diode — digits 22 vs 220 differ)", () => {
+    const parts = [
+      part({
+        item_name: "SMBJ220A",
+        details: "SMBJ220A TVS Diode 220V",
+        package: "DO-214AA",
+      }),
+    ];
+    const line = bomLine({
+      comment: "SMBJ22A",
+      value: "",
+      footprint: "SMB",
+      mpn: "SMBJ22A",
+      designator: "D1",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("rejects 0603WAF3302T5E vs 0603WAF4302T5E (33k vs 43k resistor)", () => {
+    const parts = [
+      part({
+        item_name: "0603WAF4302T5E",
+        details: "0603WAF4302T5E 43k 0603 resistor",
+        package: "0603",
+      }),
+    ];
+    const line = bomLine({
+      comment: "33k",
+      value: "",
+      footprint: "0603",
+      mpn: "0603WAF3302T5E",
+      designator: "R2",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("rejects 0603WAF3302T5E vs 0603WAF4994T5E (33k vs 4.99M)", () => {
+    const parts = [
+      part({
+        item_name: "0603WAF4994T5E",
+        details: "0603WAF4994T5E 4.99M 0603 resistor",
+        package: "0603",
+      }),
+    ];
+    const line = bomLine({
+      comment: "33k",
+      value: "",
+      footprint: "0603",
+      mpn: "0603WAF3302T5E",
+      designator: "R3",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("rejects AO3400 vs AO3401-ED-HXY (different FETs — digits 3400 vs 3401)", () => {
+    const parts = [
+      part({
+        item_name: "AO3401",
+        details: "AO3401-ED-HXY MOSFET P-Channel SOT-23-3",
+        package: "SOT-23-3",
+      }),
+    ];
+    const line = bomLine({
+      comment: "AO3400",
+      value: "",
+      footprint: "SOT-23-3",
+      mpn: "AO3400",
+      designator: "Q1",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("rejects TPS7E8201DBVR vs OPA376AIDBVR (both SOT-23-5, entirely different chips)", () => {
+    const parts = [
+      part({
+        item_name: "OPA376AIDBVR",
+        details: "TI OPA376AIDBVR Precision Op Amp SOT-23-5",
+        package: "SOT-23-5",
+      }),
+    ];
+    const line = bomLine({
+      comment: "TPS7E8201",
+      value: "",
+      footprint: "SOT-23-5",
+      mpn: "TPS7E8201DBVR",
+      designator: "U9",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("requires at least 3 digits — trivial numeric content cannot mass-match", () => {
+    // Both tokens are 5+ chars (so they clear mpnCandidates' own length
+    // floor), share the same alphabetic prefix, and share the same (but
+    // trivial, 1-digit) numeric content "9" — yet are not the identical
+    // token. This must still be rejected by the MIN_IDENTITY_DIGITS floor,
+    // which is a separate, stricter requirement from mpnCandidates' own
+    // unrelated length-5 floor.
+    const parts = [
+      part({
+        item_name: "Unrelated widget",
+        details: "totally different part XQPZL9, no shared wording otherwise",
+        package: "TO-220",
+      }),
+    ];
+    const line = bomLine({
+      comment: "some gadget",
+      value: "",
+      footprint: "TO-220",
+      mpn: "XQPZK9",
+      designator: "H1",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("requires the alphabetic prefix to match too, so a shared numeric suffix alone can't pair unrelated families", () => {
+    const parts = [
+      part({
+        item_name: "XYZ54302AB",
+        details: "XYZ54302AB some unrelated part, same digits different prefix",
+        package: "TSOT-23-6",
+      }),
+    ];
+    const line = bomLine({
+      comment: "TPS54302",
+      value: "",
+      footprint: "TSOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR",
+      mpn: "TPS54302DDCT",
+      designator: "U4",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("still accepts TPS54302DDCT/DDCR once the prefix condition is satisfied (sanity check the prefix rule doesn't break the real case)", () => {
+    const parts = [
+      part({
+        item_name: "TPS54302DDCR",
+        details: "TPS54302DDCR Buck Converter",
+        package: "TSOT-23-6",
+      }),
+    ];
+    const line = bomLine({
+      comment: "TPS54302",
+      value: "",
+      footprint: "TSOT-23-6",
+      mpn: "TPS54302DDCT",
+      designator: "U5",
+    });
+    const red = redLineFor(line, parts);
+    const relaxed = findRelaxedCandidates(red, parts);
+    expect(relaxed.length).toBe(1);
+    expect(relaxed[0].reason).toBe("same-part-different-packaging");
+  });
+
+  it("requires the same normalized package, not just the same family — same digits/prefix with a different package yields no match", () => {
+    const parts = [
+      part({
+        item_name: "TPS54302DDCR",
+        details: "TPS54302DDCR Buck Converter, but in a different package",
+        package: "SOT-23-6", // different package than the BOM line's TSOT-23-6
+      }),
+    ];
+    const line = bomLine({
+      comment: "TPS54302",
+      value: "",
+      footprint: "TSOT-23-6",
+      mpn: "TPS54302DDCT",
+      designator: "U6",
+    });
+    const red = redLineFor(line, parts);
+    expect(findRelaxedCandidates(red, parts)).toEqual([]);
+  });
+
+  it("does not perturb existing green/amber lines or the strict reconcile() output", () => {
+    const parts = [
+      part({
+        item_name: "100nF 0603 Capacitor",
+        details: "Murata GRM188R71H104KA93D 100nF X7R 50V",
+        package: "C0603",
+      }),
+      part({
+        item_name: "ESP32-S3-WROOM-1 Module",
+        details: "Espressif WiFi/BLE module, 16MB flash",
+        package: "Module",
+      }),
+      part({
+        item_name: "TPS54302DDCR",
+        details: "TI TPS54302DDCR 3A Buck Converter",
+        package: "TSOT-23-6",
+      }),
+    ];
+    const lines = [
+      bomLine({
+        comment: "CAP 100nF 0603",
+        mpn: "GRM188R71H104KA93D",
+        value: "100nF",
+        footprint: "C0603",
+      }),
+      bomLine({
+        comment: "ESP32 S3 WROOM Module",
+        designator: "U1",
+      }),
+      bomLine({
+        comment: "TPS54302",
+        value: "",
+        footprint: "TSOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR",
+        mpn: "TPS54302DDCT",
+        designator: "U3",
+      }),
+    ];
+    const before = reconcile(lines, parts);
+    expect(before[0].status).toBe("green");
+    expect(before[1].status).toBe("amber");
+    expect(before[2].status).toBe("red");
+
+    before.forEach((r) => {
+      if (r.status === "red") findRelaxedCandidates(r, parts);
+    });
+
+    const after = reconcile(lines, parts);
+    expect(after[0].status).toBe(before[0].status);
+    expect(after[0].candidates[0]?.part.id).toBe(before[0].candidates[0]?.part.id);
+    expect(after[1].status).toBe(before[1].status);
+    expect(after[1].candidates[0]?.part.id).toBe(before[1].candidates[0]?.part.id);
+    expect(after[2].status).toBe(before[2].status);
+    expect(after[2].candidates.length).toBe(0);
+  });
+});
