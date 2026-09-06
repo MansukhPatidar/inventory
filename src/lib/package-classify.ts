@@ -168,9 +168,10 @@ export function canonicalPackage(raw: string | null | undefined): string {
     return ALIASES[upper];
   }
 
-  // Anything else (bare "DIP", "SIP", "MB-F", "3296") keeps its shape but
-  // gains a consistent case.
-  return upper;
+  // Anything else keeps the spelling it already has. Upper-casing here
+  // would corrupt vendor names and unit suffixes ("PowerPAK 1212",
+  // "5mm DIP") for no gain, and these values are already one-of-a-kind.
+  return s;
 }
 
 /** True for dimension-style packages such as `D6.3xL7.8mm`, `6.3x5.4`,
