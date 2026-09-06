@@ -22,6 +22,7 @@ import {
   getBoxes,
 } from "@/lib/actions";
 import { classifyPackage } from "@/lib/package-classify";
+import { classifyName } from "@/lib/name-classify";
 import {
   isOutOfRange,
   formatAddress,
@@ -168,17 +169,21 @@ function parseInlineQtyFormat(
     if (!name) continue;
 
     const guess = classifyPackage(name, knownPackages);
+    // The pasted text is the full supplier description: it belongs in
+    // details, with a short derived label in item_name.
+    const named = classifyName(name);
 
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
-      item_name: name,
+      item_name: named.name,
       package: guess.package,
       location,
       bin_number: 0,
       details: name,
       qty,
-      lowConfidence: guess.confidence === "low" || undefined,
+      lowConfidence:
+        guess.confidence === "low" || named.confidence === "low" || undefined,
     });
     code++;
   }
@@ -232,15 +237,24 @@ function parseTabularFormat(
 
     if (!name) continue;
 
-    if (!details) details = name;
+    let lowConfidence = false;
+
+    // A separate details column means the name column is already a name.
+    // Without one, the name column holds the whole description, so it moves
+    // to details and item_name gets the short derived label.
+    if (!details) {
+      details = name;
+      const named = classifyName(name);
+      name = named.name;
+      lowConfidence = named.confidence === "low";
+    }
 
     // A package column, when present, is authoritative; only fall back to
     // reading the description when the columns didn't supply one.
-    let lowConfidence = false;
     if (!pkg) {
-      const guess = classifyPackage(name, knownPackages);
+      const guess = classifyPackage(details, knownPackages);
       pkg = guess.package;
-      lowConfidence = guess.confidence === "low";
+      lowConfidence = lowConfidence || guess.confidence === "low";
     }
 
     parts.push({
@@ -336,20 +350,26 @@ function parseOrderTableFormat(
     const qtyMatch = qtyLine.match(ORDER_QTY_LINE_RE);
     const qty = qtyMatch ? parseInt(qtyMatch[1], 10) || 0 : 0;
 
-    const item_name = nameLine.trim();
-    const guess = classifyPackage(item_name, knownPackages);
+    const description = nameLine.trim();
+    const guess = classifyPackage(description, knownPackages);
+    // The order line is the full supplier description: it belongs in
+    // details, with a short derived label in item_name.
+    const named = classifyName(description);
 
     const lowConfidence =
-      qty === 0 || item_name.length < 5 || guess.confidence === "low";
+      qty === 0 ||
+      description.length < 5 ||
+      guess.confidence === "low" ||
+      named.confidence === "low";
 
     parts.push({
       id: crypto.randomUUID(),
       item_code: code,
-      item_name,
+      item_name: named.name,
       package: guess.package,
       location,
       bin_number: 0,
-      details: item_name,
+      details: description,
       qty,
       lowConfidence: lowConfidence || undefined,
     });
