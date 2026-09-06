@@ -10,13 +10,41 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getParts } from "@/lib/actions";
 import { decodeBomBuffer, parseBomFull } from "@/lib/bom-parse";
-import { reconcile } from "@/lib/bom-match";
+import { reconcile, findRelaxedCandidates } from "@/lib/bom-match";
+import { formatAddress } from "@/lib/bins";
 import type { Part } from "@/lib/types";
 import type { BomLine } from "@/lib/bom-parse";
-import type { Candidate, MatchStatus, ReconciledLine } from "@/lib/bom-match";
+import type {
+  Candidate,
+  MatchStatus,
+  ReconciledLine,
+  RelaxedCandidate,
+  RelaxedReason,
+} from "@/lib/bom-match";
 
 /** Session-only override: row index -> chosen candidate index. Never written to Supabase. */
 type Overrides = Record<number, number>;
+
+/**
+ * Session-only per-line triage decision for red lines. Never written to
+ * Supabase, never persisted to localStorage — this is explicitly a
+ * this-session-only workflow aid; reloading the page or re-parsing the BOM
+ * resets it.
+ */
+type Decision =
+  | { kind: "undecided" }
+  | { kind: "order" }
+  | { kind: "substitute"; part: Part };
+
+type Decisions = Record<number, Decision>;
+
+const UNDECIDED: Decision = { kind: "undecided" };
+
+const RELAXED_REASON_LABEL: Record<RelaxedReason, string> = {
+  "exact-value-other-package": "same value, different package",
+  "near-value-same-package": "close value, same package",
+  "near-value-other-package": "close value, different package",
+};
 
 export default function BomPageWrapper() {
   return (
@@ -44,6 +72,7 @@ function BomPage() {
   const [lines, setLines] = useState<BomLine[]>([]);
   const [results, setResults] = useState<ReconciledLine[]>([]);
   const [overrides, setOverrides] = useState<Overrides>({});
+  const [decisions, setDecisions] = useState<Decisions>({});
 
   const [inputTab, setInputTab] = useState<"file" | "paste">("file");
   const [pasteText, setPasteText] = useState("");
@@ -76,6 +105,7 @@ function BomPage() {
     (bomLines: BomLine[], inventoryParts: Part[]) => {
       setResults(reconcile(bomLines, inventoryParts));
       setOverrides({});
+      setDecisions({});
       setExpandedIdx(null);
     },
     []
@@ -157,38 +187,87 @@ function BomPage() {
     return result.status;
   }
 
+  function decisionFor(idx: number): Decision {
+    return decisions[idx] ?? UNDECIDED;
+  }
+
+  const relaxedByIdx = useMemo(() => {
+    const map = new Map<number, RelaxedCandidate[]>();
+    results.forEach((r, idx) => {
+      if (r.status === "red") map.set(idx, findRelaxedCandidates(r, parts));
+    });
+    return map;
+  }, [results, parts]);
+
   const counts = useMemo(() => {
     const c = { green: 0, amber: 0, red: 0 };
+    let redUndecided = 0;
+    let redOrder = 0;
+    let redSubstitute = 0;
     results.forEach((r, idx) => {
-      c[effectiveStatus(idx, r)]++;
+      const st = effectiveStatus(idx, r);
+      c[st]++;
+      if (st === "red") {
+        const d = decisionFor(idx);
+        if (d.kind === "order") redOrder++;
+        else if (d.kind === "substitute") redSubstitute++;
+        else redUndecided++;
+      }
     });
     const distinct = new Set(
       results.map((r) => `${r.line.mpn || r.line.comment || ""}|${r.line.footprint || ""}`)
     );
-    return { ...c, total: results.length, distinct: distinct.size };
+    return {
+      ...c,
+      total: results.length,
+      distinct: distinct.size,
+      redUndecided,
+      redOrder,
+      redSubstitute,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, overrides]);
+  }, [results, overrides, decisions]);
 
   const visibleIndices = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    // Whitespace-separated keywords, all of which must appear somewhere in
+    // the row. Terms are ANDed and each may match a different field, so
+    // "0603 100n" finds the 100nF in an 0603 package, and "b10 22uf" finds
+    // the 22uF that lives in box B10. A quoted "..." group is kept intact
+    // for phrases that contain a space.
+    const terms = (search.toLowerCase().match(/"[^"]+"|\S+/g) || [])
+      .map((t) => t.replace(/^"|"$/g, "").trim())
+      .filter(Boolean);
+
     return results
       .map((_, idx) => idx)
       .filter((idx) => {
         const r = results[idx];
         const st = effectiveStatus(idx, r);
         if (statusFilter !== "all" && st !== statusFilter) return false;
-        if (!term) return true;
+        if (terms.length === 0) return true;
+
+        // One combined haystack over BOM fields and the matched inventory
+        // part, so a keyword hitting either side counts.
         const row = r.line;
-        const haystack = [row.comment, row.designator, row.footprint, row.value, row.mpn, row.supplierPart]
+        const m = effectiveMatch(idx, r);
+        const haystack = [
+          row.comment,
+          row.designator,
+          row.footprint,
+          row.value,
+          row.mpn,
+          row.supplierPart,
+          m?.part.item_name,
+          m?.part.details,
+          m?.part.location,
+          m?.part.package,
+          m ? `bin ${m.part.bin_number}` : null,
+        ]
+          .filter(Boolean)
           .join(" ")
           .toLowerCase();
-        if (haystack.includes(term)) return true;
-        const m = effectiveMatch(idx, r);
-        if (m) {
-          const invHay = `${m.part.item_name} ${m.part.details || ""} ${m.part.location || ""}`.toLowerCase();
-          if (invHay.includes(term)) return true;
-        }
-        return false;
+
+        return terms.every((t) => haystack.includes(t));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, overrides, statusFilter, search]);
@@ -208,6 +287,10 @@ function BomPage() {
       "Tier",
       "Score",
       "Overridden",
+      "Decision",
+      "Substitute Part",
+      "Substitute Location",
+      "Substitute Bin",
     ];
     const csvEscape = (v: unknown): string => {
       if (v === null || v === undefined) return "";
@@ -219,6 +302,9 @@ function BomPage() {
       const row = r.line;
       const st = effectiveStatus(idx, r);
       const m = effectiveMatch(idx, r);
+      const d = decisionFor(idx);
+      const decisionLabel =
+        st !== "red" ? "" : d.kind === "order" ? "order" : d.kind === "substitute" ? "substitute" : "undecided";
       return [
         st,
         row.designator,
@@ -233,6 +319,10 @@ function BomPage() {
         m ? m.tier : "",
         m ? m.score.toFixed(2) : "",
         overrides[idx] !== undefined ? "yes" : "no",
+        decisionLabel,
+        d.kind === "substitute" ? d.part.item_name : "",
+        d.kind === "substitute" ? d.part.location : "",
+        d.kind === "substitute" ? d.part.bin_number : "",
       ];
     });
     const csv = [headers, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
@@ -325,6 +415,13 @@ function BomPage() {
             <CounterPill label="Amber" value={counts.amber} tone="amber" />
             <CounterPill label="Red" value={counts.red} tone="red" />
             <CounterPill label="Distinct" value={counts.distinct} tone="default" />
+            {counts.red > 0 && (
+              <>
+                <CounterPill label="Undecided" value={counts.redUndecided} tone="red" />
+                <CounterPill label="To Order" value={counts.redOrder} tone="amber" />
+                <CounterPill label="Substituted" value={counts.redSubstitute} tone="green" />
+              </>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -343,8 +440,8 @@ function BomPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search lines or matches..."
-              className="h-8 max-w-xs bg-secondary border-border/50"
+              placeholder="Search — all keywords must match, e.g. 0603 100n"
+              className="h-8 max-w-sm bg-secondary border-border/50"
             />
             <Button variant="outline" size="sm" className="ml-auto gap-1.5" onClick={exportCsv}>
               <Download size={14} /> Export CSV
@@ -367,12 +464,13 @@ function BomPage() {
                     <Th>Inv Qty</Th>
                     <Th>Tier</Th>
                     <Th>Score</Th>
+                    <Th>Decision</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleIndices.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="text-center text-muted-foreground p-8">
+                      <td colSpan={12} className="text-center text-muted-foreground p-8">
                         No rows match the current filter/search.
                       </td>
                     </tr>
@@ -391,12 +489,29 @@ function BomPage() {
                           match={m}
                           isExpanded={isExpanded}
                           isOverridden={isOverridden}
+                          decision={decisionFor(idx)}
+                          relaxedCandidates={relaxedByIdx.get(idx) ?? []}
                           onToggle={() => setExpandedIdx(isExpanded ? null : idx)}
                           onPick={(candIdx) => {
                             setOverrides((prev) => ({ ...prev, [idx]: candIdx }));
                           }}
                           onClearOverride={() => {
                             setOverrides((prev) => {
+                              const next = { ...prev };
+                              delete next[idx];
+                              return next;
+                            });
+                          }}
+                          onMarkOrder={() => {
+                            setDecisions((prev) => ({ ...prev, [idx]: { kind: "order" } }));
+                            toast.success("Marked for ordering");
+                          }}
+                          onSubstitute={(part) => {
+                            setDecisions((prev) => ({ ...prev, [idx]: { kind: "substitute", part } }));
+                            toast.success(`Substituting with ${part.item_name}`);
+                          }}
+                          onClearDecision={() => {
+                            setDecisions((prev) => {
                               const next = { ...prev };
                               delete next[idx];
                               return next;
@@ -508,29 +623,62 @@ function Th({ children }: { children?: React.ReactNode }) {
   );
 }
 
+function DecisionPill({ decision }: { decision: Decision }) {
+  if (decision.kind === "order") {
+    return (
+      <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400">
+        order
+      </Badge>
+    );
+  }
+  if (decision.kind === "substitute") {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] border-green-500/40 text-green-400 max-w-[160px] truncate"
+        title={`Substitute: ${decision.part.item_name}`}
+      >
+        sub: {decision.part.item_name}
+      </Badge>
+    );
+  }
+  return <span className="text-muted-foreground/50 text-xs">—</span>;
+}
+
 function RowGroup({
   result,
   status,
   match,
   isExpanded,
   isOverridden,
+  decision,
+  relaxedCandidates,
   onToggle,
   onPick,
   onClearOverride,
+  onMarkOrder,
+  onSubstitute,
+  onClearDecision,
 }: {
   result: ReconciledLine;
   status: MatchStatus;
   match: Candidate | null;
   isExpanded: boolean;
   isOverridden: boolean;
+  decision: Decision;
+  relaxedCandidates: RelaxedCandidate[];
   onToggle: () => void;
   onPick: (candIdx: number) => void;
   onClearOverride: () => void;
+  onMarkOrder: () => void;
+  onSubstitute: (part: Part) => void;
+  onClearDecision: () => void;
 }) {
   const row = result.line;
   const designatorFull = row.designator;
   const designatorTruncated =
     designatorFull.length > 28 ? designatorFull.slice(0, 26) + "…" : designatorFull;
+  const isRed = status === "red";
 
   return (
     <>
@@ -587,11 +735,21 @@ function RowGroup({
         <td className="p-2.5 font-mono text-xs text-muted-foreground">
           {match ? match.score.toFixed(2) : "—"}
         </td>
+        <td className="p-2.5">{isRed ? <DecisionPill decision={decision} /> : <span className="text-muted-foreground/30 text-xs">—</span>}</td>
       </tr>
       {isExpanded && (
         <tr className="bg-secondary/40 border-t border-border/30">
-          <td colSpan={11} className="p-3">
-            {result.candidates.length === 0 ? (
+          <td colSpan={12} className="p-3">
+            {isRed ? (
+              <RedLinePanel
+                relaxedCandidates={relaxedCandidates}
+                decision={decision}
+                onMarkOrder={onMarkOrder}
+                onSubstitute={onSubstitute}
+                onClearDecision={onClearDecision}
+                bomQty={row.quantity}
+              />
+            ) : result.candidates.length === 0 ? (
               <p className="text-xs text-muted-foreground italic">
                 No candidate matches found in inventory for this line.
               </p>
@@ -662,5 +820,118 @@ function RowGroup({
         </tr>
       )}
     </>
+  );
+}
+
+function RedLinePanel({
+  relaxedCandidates,
+  decision,
+  onMarkOrder,
+  onSubstitute,
+  onClearDecision,
+  bomQty,
+}: {
+  relaxedCandidates: RelaxedCandidate[];
+  decision: Decision;
+  onMarkOrder: () => void;
+  onSubstitute: (part: Part) => void;
+  onClearDecision: () => void;
+  bomQty: string;
+}) {
+  return (
+    <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+      {decision.kind !== "undecided" && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">
+            Decision: <DecisionPill decision={decision} />
+          </span>
+          <button
+            onClick={onClearDecision}
+            className="text-muted-foreground hover:text-foreground underline"
+          >
+            Clear (back to undecided)
+          </button>
+        </div>
+      )}
+
+      {relaxedCandidates.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">
+          No near-miss inventory parts found for this line — nothing looks close enough
+          to suggest as a substitute.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border/40">
+          <table className="w-full text-xs min-w-[720px]">
+            <thead className="bg-secondary/60">
+              <tr>
+                <Th>Part</Th>
+                <Th>Package</Th>
+                <Th>Location</Th>
+                <Th>Qty</Th>
+                <Th>Reason</Th>
+                <Th>Score</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {relaxedCandidates.map((c, ci) => {
+                const isChosen =
+                  decision.kind === "substitute" && decision.part.id === c.part.id;
+                return (
+                  <tr key={ci} className={`border-t border-border/30 ${isChosen ? "bg-primary/5" : ""}`}>
+                    <td className="p-2 max-w-[240px]">
+                      <div className="font-medium truncate">{c.part.item_name}</div>
+                      {c.part.details && (
+                        <div className="text-muted-foreground/70 truncate">{c.part.details}</div>
+                      )}
+                    </td>
+                    <td className="p-2 font-mono whitespace-nowrap">
+                      {c.part.package || "—"}
+                      {c.crossFamily && (
+                        <Badge
+                          variant="outline"
+                          className="ml-1.5 text-[9px] border-amber-500/40 text-amber-400"
+                        >
+                          different footprint
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="p-2 font-mono whitespace-nowrap">
+                      {formatAddress(c.part.location, c.part.bin_number)}
+                    </td>
+                    <td className="p-2 font-mono whitespace-nowrap">{c.part.qty ?? "—"}</td>
+                    <td className="p-2 text-muted-foreground whitespace-nowrap">
+                      {RELAXED_REASON_LABEL[c.reason]}
+                    </td>
+                    <td className="p-2 font-mono text-muted-foreground whitespace-nowrap">
+                      {c.score.toFixed(2)}
+                    </td>
+                    <td className="p-2 text-right whitespace-nowrap">
+                      {isChosen ? (
+                        <span className="text-muted-foreground/60">selected</span>
+                      ) : (
+                        <Button variant="ghost" size="xs" onClick={() => onSubstitute(c.part)}>
+                          Use this instead
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant={decision.kind === "order" ? "secondary" : "outline"}
+          size="sm"
+          onClick={onMarkOrder}
+        >
+          Mark for ordering{bomQty ? ` (qty ${bomQty})` : ""}
+        </Button>
+      </div>
+    </div>
   );
 }

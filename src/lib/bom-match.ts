@@ -436,3 +436,291 @@ export function reconcile(lines: BomLine[], parts: Part[]): ReconciledLine[] {
     return { line, candidates, status };
   });
 }
+
+/* =========================================================================
+   RELAXED MATCHING (red lines only)
+
+   A `red` line has no candidate in any strict tier. This pass looks for
+   near-miss inventory parts to suggest as manual "order" vs "substitute"
+   decisions. It never runs for green/amber lines and never feeds back into
+   `reconcile`/`matchLine`/`statusForCandidates` — the strict 45/0/35 split
+   on the real BOM is unaffected by construction.
+   ========================================================================= */
+
+export type RelaxedReason =
+  | "exact-value-other-package"
+  | "near-value-same-package"
+  | "near-value-other-package";
+
+export interface RelaxedCandidate {
+  part: Part;
+  reason: RelaxedReason;
+  score: number;
+  crossFamily: boolean;
+}
+
+/** Coarse package-compatibility family. Suggestions only cross into a
+ * different pkg within the same family by default; cross-family hits are
+ * still surfaced but ranked last and flagged. */
+export type PackageFamily =
+  | "chip"
+  | "smd-can"
+  | "through-hole"
+  | "sot"
+  | "sop"
+  | "unknown";
+
+const CHIP_SIZES: Record<string, 1> = {
+  "0201": 1,
+  "0402": 1,
+  "0603": 1,
+  "0805": 1,
+  "1206": 1,
+  "1210": 1,
+  "2010": 1,
+  "2512": 1,
+};
+
+/**
+ * Classify a normalized-or-raw package string into a coarse family so
+ * relaxed suggestions don't silently cross between, say, a 0603 chip
+ * resistor and a through-hole radial capacitor.
+ */
+export function packageFamily(pkg: string | null | undefined): PackageFamily {
+  if (!pkg) return "unknown";
+  const s = String(pkg).trim().toUpperCase();
+  if (s === "") return "unknown";
+
+  // Try the normalized chip-size form first (normPackage already strips
+  // C/R/L prefixes and _-suffixed dimension tails).
+  const norm = normPackage(s);
+  if (norm && Object.prototype.hasOwnProperty.call(CHIP_SIZES, norm)) return "chip";
+
+  // EasyEDA footprints carry the chip size in a dimension tail that
+  // normPackage discards at the first underscore, e.g.
+  // "RES-SMD_L6.4-W3.2-R2512" -> "RES-SMD". Recover it so a 2512 shunt is
+  // recognised as the same family as a 2512 chip resistor rather than
+  // falling through to "unknown" and being labelled a cross-family guess.
+  const embedded = /[-_]([CRL]?)(\d{4})\b/.exec(s);
+  if (
+    embedded &&
+    Object.prototype.hasOwnProperty.call(CHIP_SIZES, embedded[2])
+  ) {
+    return "chip";
+  }
+
+  if (/^SOT[-_]?\d/.test(s)) return "sot";
+  if (/^(SOP|SOIC|TSSOP|ESSOP|QFN|LQFP)/.test(s)) return "sop";
+  if (/^(DIP|TO-?92|TH-|HDR-TH)/.test(s)) return "through-hole";
+  if (/^(CAP-SMD|D\d+X)/.test(s)) return "smd-can";
+  if (/^D\d/.test(s)) return "smd-can"; // e.g. "D8.0xL10.0"
+  if (/RADIAL/.test(s)) return "through-hole";
+
+  return "unknown";
+}
+
+/**
+ * E12 preferred-value significands (1.0-8.2 decade), used to detect
+ * "adjacent E-series neighbour" values for the near-value band, e.g. 33k is
+ * adjacent to 27k and 39k.
+ */
+const E12_SIGNIFICANDS = [
+  1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2,
+];
+
+/**
+ * Build the full E12 preferred-value sequence (as absolute values, not just
+ * significands) spanning several decades either side of a reference value,
+ * so adjacency can be checked without collapsing magnitude information —
+ * comparing bare significands would wrongly call 5 and 4700 "adjacent"
+ * because both round to a ~4.7-5 significand.
+ */
+function e12Neighbours(v: number): number[] {
+  const decade = Math.pow(10, Math.floor(Math.log10(v)));
+  const out: number[] = [];
+  // The decade above and below in case v's significand rounds near a
+  // boundary (e.g. just under 1.0 or just over 8.2).
+  for (const mult of [decade / 10, decade, decade * 10]) {
+    for (const sig of E12_SIGNIFICANDS) out.push(sig * mult);
+  }
+  return out;
+}
+
+/** True when `b` is within the widened near-value band of `a`: ~±20%, or an
+ * adjacent E12 neighbour (whichever is more permissive). Both checks are
+ * magnitude-aware — they never treat values in different decades as near. */
+function valuesNear(a: number, b: number): boolean {
+  if (a === 0 || b === 0) return a === b;
+  const ratio = b / a;
+  if (ratio >= 0.8 && ratio <= 1.2) return true;
+
+  // Adjacent E-series neighbour check: find a's position in its own E12
+  // sequence (spanning the decade above/below) and see whether b matches
+  // one of the immediately adjacent entries.
+  const seq = e12Neighbours(a).sort((x, y) => x - y);
+  let closestIdx = 0;
+  let closestDist = Infinity;
+  for (let i = 0; i < seq.length; i++) {
+    const d = Math.abs(Math.log(seq[i]) - Math.log(a));
+    if (d < closestDist) {
+      closestDist = d;
+      closestIdx = i;
+    }
+  }
+  for (const i of [closestIdx - 1, closestIdx, closestIdx + 1]) {
+    if (i < 0 || i >= seq.length) continue;
+    const neighbour = seq[i];
+    if (Math.abs(neighbour - b) / Math.max(neighbour, b) <= 0.05) return true;
+  }
+  return false;
+}
+
+/** Value-bearing BOM lines look like passives; MPN-shaped tokens with no
+ * parsable value look like semiconductors/ICs, where we must never guess an
+ * "equivalent" part. */
+function looksLikeSemiconductor(line: BomLine): boolean {
+  const val = line.value ? parseValue(line.value) : null;
+  if (val) return false;
+  // No parsable value anywhere (value column, or embedded in comment) and an
+  // MPN-shaped token present -> treat as a semiconductor/IC line.
+  const commentVal = line.comment ? parseValue(line.comment) : null;
+  if (commentVal) return false;
+  const mpnLike = mpnCandidates(line.mpn || line.comment || "");
+  return mpnLike.length > 0;
+}
+
+/**
+ * Marker words that mean a number in an inventory row is a *spec* of some
+ * active or frequency-dependent part, not that part's own value.
+ *
+ * A MOSFET's on-resistance ("120mΩ@4.5V"), an inductor's DC resistance
+ * ("90mOhm"), and a ferrite bead's impedance ("100Ω@100MHz") all scan as
+ * plain ohm readings, so without this an IRFP9540 gets offered as a
+ * substitute for a 100mΩ current-shunt resistor. They are not
+ * interchangeable, and a confident wrong suggestion at the bench is worse
+ * than no suggestion at all.
+ */
+const SPEC_NOT_VALUE_RE =
+  /\bMOSFET\b|\bIGBT\b|\btransistor\b|\bdiode\b|\bferrite\b|\bbead\b|\binductor\b|\brelay\b|\bregulator\b|\bamplifier\b|\bRDS\b|\bDCR\b|@\s*\d|\bV\s*,\s*\d|\bA\b\s*\d+m[ΩR]/i;
+
+/**
+ * True when an inventory row's ohm/farad/henry reading is really a spec of
+ * an active part rather than the value of a passive. Only consulted for
+ * relaxed matching; the strict tiers are untouched.
+ */
+function inventoryValueIsSpec(part: Part, kind: ValueKind): boolean {
+  const text = [part.item_name, part.details].filter(Boolean).join(" ");
+  // Ferrite beads are rated in ohms at a frequency but are not resistors.
+  if (kind === "ohm" && /ferrite|bead/i.test(text)) return true;
+  return SPEC_NOT_VALUE_RE.test(text);
+}
+
+/**
+ * For a single `red` reconciled line, search the full inventory for
+ * near-miss passive-component candidates: same value in a different
+ * package, or a nearby value in the same (or a different) package. Returns
+ * up to 8 candidates, strongest first. Returns an empty array for lines
+ * that look like semiconductors/ICs (no parsable value) — we never guess
+ * part-number equivalence there.
+ *
+ * The same suppression applies in the other direction: an inventory row
+ * whose ohm reading is an on-resistance or impedance spec is skipped, so
+ * active parts are never offered as passive substitutes.
+ *
+ * Pure and read-only: does not mutate `line` or `parts`, and is never
+ * invoked from `reconcile` — callers run it only for lines whose `status`
+ * came back `"red"`.
+ */
+export function findRelaxedCandidates(
+  redLine: ReconciledLine,
+  parts: Part[]
+): RelaxedCandidate[] {
+  const line = redLine.line;
+  if (redLine.status !== "red") return [];
+
+  const bomVal = line.value ? parseValue(line.value) : null;
+  const bomValFromComment = !bomVal && line.comment ? parseValue(line.comment) : null;
+  const effectiveVal = bomVal || bomValFromComment;
+
+  if (!effectiveVal) return []; // no parsable value: never guess at ICs/semis
+  if (looksLikeSemiconductor(line)) return [];
+
+  const bomPkg = line.footprint ? normPackage(line.footprint) : null;
+  const bomFamily = packageFamily(line.footprint);
+
+  const out: RelaxedCandidate[] = [];
+
+  for (const p of parts) {
+    // Skip rows whose value reading is really an active part's spec (a
+    // MOSFET's on-resistance, a bead's impedance) rather than its value.
+    if (inventoryValueIsSpec(p, effectiveVal.kind)) continue;
+
+    const text = [p.item_name, p.details]
+      .filter((v): v is string => v !== null && v !== undefined)
+      .join(" ");
+    const cleanText = cleanValueStr(text);
+
+    // Find the best value match embedded anywhere in this part's text.
+    let bestKindMatch: ParsedValue | null = null;
+    let exact = false;
+    VALUE_SCAN_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = VALUE_SCAN_RE.exec(cleanText)) !== null) {
+      // Dielectric/temperature-coefficient codes like X5R, X7R, C0G, NP0 are
+      // not values, but the trailing digit+letter ("5R", "0G") can look like
+      // a bare ohm/farad reading to the generic scanner. Skip a match whose
+      // preceding character is a letter that turns it into one of these
+      // codes — this guard is local to relaxed matching and never touches
+      // the strict tiers' shared scan loop above.
+      const precedingChar = cleanText[m.index - 1];
+      if (precedingChar && /[A-Za-z]/.test(precedingChar)) {
+        if (m[0].length === 0) VALUE_SCAN_RE.lastIndex++;
+        continue;
+      }
+      const pv = parseValue(m[0]);
+      if (pv && pv.kind === effectiveVal.kind) {
+        const isExact = valuesClose(pv.qty, effectiveVal.qty);
+        const isNear = valuesNear(pv.qty, effectiveVal.qty);
+        if (isExact) {
+          bestKindMatch = pv;
+          exact = true;
+          break;
+        }
+        if (isNear && !bestKindMatch) {
+          bestKindMatch = pv;
+        }
+      }
+      if (m[0].length === 0) VALUE_SCAN_RE.lastIndex++;
+    }
+
+    if (!bestKindMatch) continue;
+
+    const entryPkg = normPackage(p.package);
+    const entryFamily = packageFamily(p.package);
+    const samePackage = bomPkg !== null && entryPkg !== null && bomPkg === entryPkg;
+    const crossFamily = !(bomFamily !== "unknown" && bomFamily === entryFamily);
+
+    let reason: RelaxedReason;
+    let score: number;
+    if (exact && !samePackage) {
+      reason = "exact-value-other-package";
+      score = crossFamily ? 0.6 : 0.85;
+    } else if (!exact && samePackage) {
+      reason = "near-value-same-package";
+      score = crossFamily ? 0.5 : 0.7;
+    } else if (!exact && !samePackage) {
+      reason = "near-value-other-package";
+      score = crossFamily ? 0.25 : 0.45;
+    } else {
+      // exact value, same package: reconcile() would already have made this
+      // a green value+package match, so a red line can't legitimately reach
+      // here — skip rather than double-report.
+      continue;
+    }
+
+    out.push({ part: p, reason, score, crossFamily });
+  }
+
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, 8);
+}
