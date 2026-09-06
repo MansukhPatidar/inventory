@@ -71,7 +71,9 @@ const EMPTY_PKGS: Record<string, 1> = {
 /** Package families that take a hyphen before their pin count / size, so
  * `TO220` and `TO-220` collapse to one value. */
 const HYPHENATED_FAMILIES = [
+  "VSSOP",
   "TSSOP",
+  "QSOP",
   "SSOP",
   "TQFP",
   "LQFP",
@@ -94,6 +96,9 @@ const HYPHENATED_FAMILIES = [
 
 /** One-off spellings seen in this inventory that regex rules can't derive. */
 const ALIASES: Record<string, string> = {
+  // "ESSOP" is the same exposed-pad SOP family the inventory spells "ESOP".
+  "ESSOP-8": "ESOP-8",
+  "ESSOP-10": "ESOP-10",
   // "SO-8" is the older name for a narrow SOIC-8.
   "SO-8": "SOIC-8",
   SO8: "SOIC-8",
@@ -132,6 +137,15 @@ export function canonicalPackage(raw: string | null | undefined): string {
 
   if (Object.prototype.hasOwnProperty.call(ALIASES, upper)) {
     return ALIASES[upper];
+  }
+
+  // A leading N/W on the SOP and SOIC families is a body width (narrow /
+  // wide), not a distinct footprint: NSOP-8 and NSOIC-8 are the SOP-8 and
+  // SOIC-8 the inventory already uses. ESSOP/VSSOP/QSOP are left alone —
+  // those prefixes name genuinely different packages.
+  const bodyWidth = /^[NW](SOIC|SOP)([\s-]?\d.*)?$/i.exec(upper);
+  if (bodyWidth) {
+    return canonicalPackage(`${bodyWidth[1]}${bodyWidth[2] ?? ""}`);
   }
 
   // EasyEDA-style dimension tails: "SOT-23-3_L2.9-W1.6" -> "SOT-23-3".
@@ -200,9 +214,11 @@ interface Candidate {
 const EXPLICIT_PATTERNS: RegExp[] = [
   // Dimensional cans: D6.3xL7.8mm, D6.3xL5.9mm, 6.3x5.4, 8x8x4.
   /\bD\d+(?:\.\d+)?\s*[x×]\s*L\d+(?:\.\d+)?\s*(?:MM)?\b/gi,
-  // Pin-counted families. The leading (?<![A-Z0-9]) stops us matching the
-  // "SOP-24" tail inside "TSSOP-24" as a separate, less specific candidate.
-  /(?<![A-Z0-9])(?:TSSOP|SSOP|ESOP|MSOP|SOIC|NSOIC|WSOIC|SOP|SOT|SOD|TQFP|LQFP|QFP|QFN|DFN|BGA|SC|DO|DIP|SIP)[\s-]?\d+(?:-\d+)*\b/gi,
+  // Pin-counted families, with an optional one/two-letter body-size prefix
+  // so ESSOP-10, VSSOP-8, QSOP-28 and NSOIC-8 are matched rather than
+  // silently dropped. The whole token is captured, and specificity scoring
+  // then prefers "TSSOP-24" over the "SOP-24" the same text also yields.
+  /(?<![A-Z0-9])[A-Z]{0,2}(?:TSSOP|SSOP|ESOP|MSOP|SOIC|SOP|SOT|SOD|TQFP|LQFP|QFP|QFN|DFN|BGA|SC|DO|DIP|SIP)[\s-]?\d+(?:-\d+[A-Z]?)*\b/gi,
   // TO-92 / TO-220 / TO-252 / TO-220FB. Requires a digit immediately after
   // the optional hyphen so the English word "TO" in "-40 TO 125DEG" can
   // never match.

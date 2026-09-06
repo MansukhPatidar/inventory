@@ -241,6 +241,22 @@ describe("classifyPackage — snapping to the known vocabulary", () => {
   });
 });
 
+describe("classifyPackage — SOP family variants", () => {
+  // These all failed silently before: the pin-counted pattern listed only
+  // bare family names, so a body-size prefix meant no match at all and the
+  // part was filed with no package.
+  it.each([
+    ["CH224K WCH ESSOP-10 USB PD Fast Charging Protocol Receiving Chip", "ESOP-10"],
+    ["some chip in an NSOP-8 package", "SOP-8"],
+    ["a part in VSSOP-8", "VSSOP-8"],
+    ["QSOP28 something", "QSOP-28"],
+    ["SL1117-3.3-Slkor-SOT-223-3L Voltage Regulators - Linear", "SOT-223-3L"],
+    ["SRV05 SOT-23-6L ESD protection", "SOT-23-6L"],
+  ])("reads %s as %s", (desc, want) => {
+    expect(classifyPackage(desc).package).toBe(want);
+  });
+});
+
 describe("canonicalPackage", () => {
   it.each([
     ["TO220", "TO-220"],
@@ -261,6 +277,15 @@ describe("canonicalPackage", () => {
     ["TH", "TH"],
     ["SOT-23-3", "SOT-23-3"],
     ["0603", "0603"],
+    // N/W is a body width on the SOP and SOIC families, not a footprint.
+    ["NSOP-8", "SOP-8"],
+    ["NSOP8", "SOP-8"],
+    ["WSOP-16", "SOP-16"],
+    ["WSOIC-8", "SOIC-8"],
+    // ESSOP/VSSOP/QSOP name genuinely different packages and are kept.
+    ["ESSOP-10", "ESOP-10"],
+    ["VSSOP-8", "VSSOP-8"],
+    ["QSOP28", "QSOP-28"],
   ])("canonicalizes %s -> %s", (raw, want) => {
     expect(canonicalPackage(raw)).toBe(want);
   });
