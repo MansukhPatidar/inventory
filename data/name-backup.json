@@ -1,58 +1,14 @@
 [
   {
-    "id": 400,
-    "item_name": "MWSA0605S-150MT-Sunlord-15uH 3.1A 20% 90mOhm Unshielded Wirewound Power Inductor SMD"
+    "id": 371,
+    "item_name": "100uF 6.3V 1206 CCTC TCC1206X5R107M6R3HT X5R SMD 20% ET7888"
   },
   {
-    "id": 439,
-    "item_name": "220 uF 35V Surface Mount Electrolytic Capacitor"
+    "id": 462,
+    "item_name": "104M(100nF)±20% Rated voltage:50V"
   },
   {
-    "id": 446,
-    "item_name": "0603WAF4302T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 43kΩ 0603 Chip Resistor - Surface Mount ROHS"
-  },
-  {
-    "id": 450,
-    "item_name": "WR06X8201FTL-Walsin-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 8.2kΩ 0603 Chip Resistor - Surface Mount ROHS"
-  },
-  {
-    "id": 468,
-    "item_name": "AC1206FR-071KL-YAGEO-Res Thick Film 1206 1K Ohm 1% 0.25W(1/4W) ±100ppm/°C Pad SMD T/R Automotive AEC-Q200"
-  },
-  {
-    "id": 496,
-    "item_name": "0603WAF4994T5E-Uniohm/Royal-ohm-100mW Thick Film Resistors 75V ±100ppm/℃ ±1% 4.99MΩ 0603 Chip Resistor - Surface Mount ROHS"
-  },
-  {
-    "id": 530,
-    "item_name": "0.5 Ohm 3W Surface Mount Sense Resistor"
-  },
-  {
-    "id": 535,
-    "item_name": "OVZ101M1CTR-0606-LELON-16V 100uF ±20% 24mΩ@100kHz~300kHz 2.49A@100kHz SMD,D6.3xL5.9mm Solid Capacitors ROHS"
-  },
-  {
-    "id": 372,
-    "item_name": "CH32V003J4M6 SOP8 RISC-V SMD WCH Micro controller ET7879"
-  },
-  {
-    "id": 373,
-    "item_name": "CH32V003A4M6 SOP-16 RISC-V Microcontroller WCH A2076"
-  },
-  {
-    "id": 388,
-    "item_name": "SN74LS04DR-HLF-Inverter Logic IC"
-  },
-  {
-    "id": 389,
-    "item_name": "74LS07-HLF-Hex Buffer/ Driver IC"
-  },
-  {
-    "id": 435,
-    "item_name": "BAV199T-7-F-DIODES INC.-BAV199T-7-F-Small Signal Diode, Dual Series, 85 V, 125 mA, 1.1 V, 3 µs, 4 A"
-  },
-  {
-    "id": 438,
-    "item_name": "AO3401-ED-HXY MOSFET-20V 3A 120mΩ@4.5V,2A 700mW 400mV 1 P-Channel SOT-23 MOSFETs ROHS"
+    "id": 490,
+    "item_name": "471K(470pF)±10% Rated voltage:50V"
   }
 ]

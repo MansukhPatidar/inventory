@@ -55,9 +55,10 @@ const ROWS = [
   { code: 311, name: "220uF 35V" },
   { code: 318, name: "43k" },
   { code: 322, name: "8.2k" },
-  // 1K collides with #204, a 1kΩ in a 1210 package; the package is appended
-  // automatically so the two stay distinguishable in search.
-  { code: 341, name: "1K" },
+  // Applied as "1K 1206": 1K collides with #204, a 1kΩ in a 1210 package,
+  // so the collision rule appended the package. Listed in its final form so
+  // a re-run recognises the row as already done.
+  { code: 341, name: "1K 1206" },
   { code: 369, name: "4.99M" },
   { code: 403, name: "0.5R" },
   { code: 409, name: "100uF 16V" },
@@ -69,6 +70,11 @@ const ROWS = [
   { code: 261, name: "74LS07" },
   { code: 307, name: "BAV199T-7" },
   { code: 310, name: "AO3401" },
+
+  // Capacitors whose line names no category, only an EIA code and a value.
+  { code: 243, name: "100uF 6.3V" },
+  { code: 334, name: "100nF 50V" },
+  { code: 363, name: "470pF 50V" },
 
   // Deliberately NOT listed, though the classifier is confident about them:
   //   #138 "ESP32-WROOM-32 WiFi + BT + BLE Module" -> "ESP32" drops the

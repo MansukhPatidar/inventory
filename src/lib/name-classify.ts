@@ -78,11 +78,27 @@ const TYPE_RULES: Array<[ComponentType, RegExp]> = [
   ],
 ];
 
+/**
+ * A unit that only one kind of component carries. Supplier lines for bare
+ * passives often name no category at all — "104M(100nF)±20% Rated
+ * voltage:50V" is unmistakably a capacitor without the word appearing — so
+ * the unit itself is the fallback type signal.
+ */
+const UNIT_TYPE_RULES: Array<[ComponentType, RegExp]> = [
+  ["capacitor", /\d\s*(?:p|n|u|µ|μ)\s*F\b/i],
+  ["inductor", /\d\s*(?:n|u|µ|μ|m)\s*H\b(?!z)/i],
+  ["resistor", /\d\s*(?:k|K|M|m)?\s*(?:Ω|ohms?\b)/i],
+];
+
 /** Classify the component type named in a description. */
 export function componentType(desc: string | null | undefined): ComponentType {
   const s = String(desc ?? "");
   if (s.trim() === "") return "unknown";
   for (const [type, re] of TYPE_RULES) {
+    if (re.test(s)) return type;
+  }
+  // No category word: fall back to the unit the value is written in.
+  for (const [type, re] of UNIT_TYPE_RULES) {
     if (re.test(s)) return type;
   }
   return "unknown";
@@ -104,7 +120,8 @@ const RES_VALUE_RE = /(\d+(?:\.\d+)?)\s*(m|k|K|M|meg|R)?\s*(?:Ω|ohms?\b)/i;
 /** Resistance in R-notation: "4R7", "10R", "0R22". */
 const RES_RNOTE_RE = /\b(\d+)(R)(\d*)\b/;
 
-/** Capacitance: "10uF", "100 uF", "150pF", "100nF", "4.7µF". */
+/** Capacitance: "10uF", "100 uF", "150pF", "100nF", "4.7µF". Also matches
+ * inside the EIA parenthetical form suppliers use, "104M(100nF)". */
 const CAP_VALUE_RE = /(\d+(?:\.\d+)?)\s*(p|n|u|µ|μ|m)\s*F\b/i;
 
 /** Inductance: "15uH", "470uH", "68 µH", "1mH". */

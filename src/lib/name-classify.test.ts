@@ -70,6 +70,18 @@ describe("classifyName — passives are named by value and rating", () => {
   });
 });
 
+describe("classifyName — a bare value with no category word", () => {
+  // Supplier lines for loose passives often name no category at all. The
+  // unit the value is written in is enough to tell what it is.
+  it.each([
+    ["104M(100nF)±20% Rated voltage:50V", "capacitor", "100nF 50V"],
+    ["471K(470pF)±10% Rated voltage:50V", "capacitor", "470pF 50V"],
+  ])("reads %s as a %s named %s", (desc, type, name) => {
+    expect(componentType(desc)).toBe(type);
+    expect(classifyName(desc).name).toBe(name);
+  });
+});
+
 describe("classifyName — ICs and discretes are named by MPN", () => {
   it.each([
     ["BAV199-Slkor-85V 1.25V 3us 160mA SOT-23 Switching Diodes ROHS", "BAV199"],

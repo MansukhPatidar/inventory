@@ -2576,7 +2576,7 @@
   {
     "id": 371,
     "item_code": 243,
-    "item_name": "100uF 6.3V 1206 CCTC TCC1206X5R107M6R3HT X5R SMD 20% ET7888",
+    "item_name": "100uF 6.3V",
     "package": "1206",
     "location": "B9",
     "details": "100uF 6.3V 1206 CCTC TCC1206X5R107M6R3HT X5R SMD 20% ET7888",
@@ -3720,7 +3720,7 @@
   {
     "id": 462,
     "item_code": 334,
-    "item_name": "104M(100nF)±20% Rated voltage:50V",
+    "item_name": "100nF 50V",
     "package": "0603",
     "location": "B10",
     "details": "TCC0603X7R104M500CT-CCTC-SMT ceramic capacitors 0603 X7R 104M(100nF)±20% Rated voltage:50V thickness:0.80mm tape",
@@ -4084,7 +4084,7 @@
   {
     "id": 490,
     "item_code": 363,
-    "item_name": "471K(470pF)±10% Rated voltage:50V",
+    "item_name": "470pF 50V",
     "package": "0603",
     "location": "B6",
     "details": "TCC0603X7R471K500CT-CCTC-SMT ceramic capacitors 0603 X7R 471K(470pF)±10% Rated voltage:50V thickness:0.80mm tape",
